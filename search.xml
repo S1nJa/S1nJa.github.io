@@ -1,6 +1,152 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
+    <title>ClassLoader动态类加载</title>
+    <url>/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/</url>
+    <content><![CDATA[<p>在JNDI、RMI等攻击中，我们常会用到这么一段测试代码</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">Exec</span> &#123;</span><br><span class="line">    <span class="keyword">static</span> &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            Runtime.getRuntime().exec(<span class="string">&quot;calc&quot;</span>);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (IOException e) &#123;</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">RuntimeException</span>(e);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>将它反编译成class文件后，开启监听服务即可进行远程类加载，但这段代码中没有main等执行方法，它又为啥会执行呢？这其实跟类加载机制有关</p>
+<h1 id="类加载机制"><a href="#类加载机制" class="headerlink" title="类加载机制"></a>类加载机制</h1><p>类的加载分为以下几步：</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230927210744873.png" alt="image-20230927210744873"></p>
+<p>类加载初始化和实例化的时候会执行对应的代码块</p>
+<ul>
+<li>初始化：静态代码块(一次执行中静态代码块只能执行一次)</li>
+<li>实例化：匿名代码块、构造方法</li>
+</ul>
+<h2 id="实例"><a href="#实例" class="headerlink" title="实例"></a><strong>实例</strong></h2><p>以Person类为例</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">Person</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> String name;</span><br><span class="line">    <span class="keyword">private</span> <span class="type">int</span> age;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="type">int</span> id;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">static</span> &#123;</span><br><span class="line">        System.out.println(<span class="string">&quot;静态代码块&quot;</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span>  <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">staticAction</span><span class="params">()</span>&#123;</span><br><span class="line">        System.out.println(<span class="string">&quot;静态方法&quot;</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    &#123;</span><br><span class="line">        System.out.println(<span class="string">&quot;匿名代码块&quot;</span>);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">Person</span><span class="params">()</span> &#123;</span><br><span class="line">        System.out.println(<span class="string">&quot;无参构造方法&quot;</span>);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">Person</span><span class="params">(String name, <span class="type">int</span> age)</span> &#123;</span><br><span class="line">        System.out.println(<span class="string">&quot;有参构造方法&quot;</span>);</span><br><span class="line">        <span class="built_in">this</span>.name = name;</span><br><span class="line">        <span class="built_in">this</span>.age = age;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>类进行实例化</strong></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span>  &#123;</span><br><span class="line">    <span class="keyword">new</span> <span class="title class_">Person</span>(<span class="string">&quot;S1nJa&quot;</span>,<span class="number">2</span>);</span><br><span class="line">&#125;    </span><br></pre></td></tr></table></figure>
+
+<p>结果：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">静态代码块</span><br><span class="line">匿名代码块</span><br><span class="line">有参构造方法</span><br></pre></td></tr></table></figure>
+
+<p><strong>调用静态方法</strong></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span>  &#123;</span><br><span class="line">    Person.staticAction();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>结果：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">静态代码块</span><br><span class="line">静态方法</span><br></pre></td></tr></table></figure>
+
+<p><strong>class类加载</strong></p>
+<p>用class关键字时，只进行了类加载并没有进行初始化，所以不会调用任何代码块</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> &#123;</span><br><span class="line">    <span class="type">Class</span> <span class="variable">c</span> <span class="operator">=</span> Person.class;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>Class.forName</strong></p>
+<p><code>Class.forName()</code>默认会调用forName0，而第二个参数默认为true，所以会进行初始化</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230927213440184.png" alt="image-20230927213440184"></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> ClassNotFoundException &#123;	</span><br><span class="line">    Class.forName(<span class="string">&quot;Person&quot;</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>结果：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">静态代码块</span><br></pre></td></tr></table></figure>
+
+<p>若想不进行初始化则可以调用它的其他构造方法</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> ClassNotFoundException &#123;      </span><br><span class="line">       <span class="type">ClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> ClassLoader.getSystemClassLoader();</span><br><span class="line">       Class.forName(<span class="string">&quot;Person&quot;</span>,<span class="literal">false</span>,cl);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>loadClass</strong></p>
+<p>默认不进行初始化，需要结合<code>newInstance()</code></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="type">ClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> ClassLoader.getSystemClassLoader();</span><br><span class="line"><span class="type">Class</span> <span class="variable">c</span> <span class="operator">=</span> cl.loadClass(<span class="string">&quot;Person&quot;</span>);</span><br><span class="line">c.newInstance();</span><br></pre></td></tr></table></figure>
+
+<p>结果：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">静态代码块</span><br><span class="line">匿名代码块</span><br><span class="line">无参构造方法</span><br></pre></td></tr></table></figure>
+
+<p>JNDI注入等，都是通过lookup中调用<code>newInstance()</code>实现的，所以会实例化class文件中的恶意类，调用对应的恶意代码块。而这些类的初始化、实例化都是由类加载器完成的，所以看下类加载器。</p>
+<h1 id="类加载器"><a href="#类加载器" class="headerlink" title="类加载器"></a>类加载器</h1><p>类加载器主要分为两类：</p>
+<ul>
+<li><strong>JVM 默认类加载器</strong><br>主要由 “引导类加载器”、“扩展类加载器”、“系统类加载器” 三方面组成。</li>
+<li><strong>用户自定义类加载器</strong><br>用户可以编写继承 java.lang.ClassLoader类的自定义类来自定义类加载器。</li>
+</ul>
+<h2 id="引导类加载器（BootstrapClassLoader）"><a href="#引导类加载器（BootstrapClassLoader）" class="headerlink" title="引导类加载器（BootstrapClassLoader）"></a>引导类加载器（BootstrapClassLoader）</h2><p>底层原生代码是C++语言编写，属于jvm一部分，不继承java.lang.ClassLoader类，也没有父加载器，主要负责加载&#x2F;jre&#x2F;lib&#x2F;rt.jar包下的内容</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928105919516.png" alt="image-20230928105919516"></p>
+<p>随便找了个&#x2F;jre&#x2F;lib&#x2F;rt.jar包下的类Applet，查看它的父类加载器，由于他是被BootstrapClassLoader加载的，所以并没有父类加载器，结果为null。</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928110137322.png" alt="image-20230928110137322"></p>
+<h2 id="扩展类加载器-ExtensionsClassLoader"><a href="#扩展类加载器-ExtensionsClassLoader" class="headerlink" title="扩展类加载器(ExtensionsClassLoader)"></a>扩展类加载器(ExtensionsClassLoader)</h2><p>主要负责加载&#x2F;jre&#x2F;lib&#x2F;ext或者java.ext.dirs中指明目录对的java扩展库</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928110520142.png" alt="image-20230928110520142"></p>
+<p>该类位于<code>sun.misc.Launcher$ExtClassLoader</code></p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928110843548.png" alt="image-20230928110843548"></p>
+<h2 id="系统类加载器（AppClassLoader）"><a href="#系统类加载器（AppClassLoader）" class="headerlink" title="系统类加载器（AppClassLoader）"></a>系统类加载器（AppClassLoader）</h2><p>主要负责加载用户类路径(classPath)上的类库，如果我们没有实现自定义的类加载器那它就是我们程序中的默认加载器。</p>
+<p>ClassLoaderTest本身就是由它来加载的，该类位于<code>sun.misc.Launcher$AppClassLoader</code></p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928111357642.png" alt="image-20230928111357642"></p>
+<h2 id="自定义类加载器-CustomClassLoader"><a href="#自定义类加载器-CustomClassLoader" class="headerlink" title="自定义类加载器(CustomClassLoader)"></a>自定义类加载器(CustomClassLoader)</h2><p>可以通过继承java.lang.ClassLoader类的方式实现自己的类加载器</p>
+<h1 id="双亲委派"><a href="#双亲委派" class="headerlink" title="双亲委派"></a>双亲委派</h1><p>一般来说，当需要加载一个类时，JVM的三种默认类加载器是按按需加载的方式相互配合使用，这就衍生出了双亲委派模式</p>
+<img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928124921659.png" alt="image-20230928124921659" style="zoom: 80%;">
+
+<p>双亲委派的意思是：当类加载器需要加载一个类时，首先它会把这个类请求委派给父类加载器去完成 (如AppClassLoader会委派给ExtClassLoader，ExtClassLoader会委派给BootStrapClassLoader)。一直递归到顶层，当父加载器无法完成这个请求时，子类才会尝试去加载。这里的双亲其实只是翻译问题，他们之间并不存在继承关系，只是逻辑上的指向。</p>
+<h2 id="优点"><a href="#优点" class="headerlink" title="优点"></a>优点</h2><ol>
+<li>避免重复加载：双亲委派模型使得每个类加载器首先向上委派给父类加载器，因此在整个类加载器层次结构中，任何类都只会被加载一次。这避免了同一个类被多个不同的类加载器重复加载，减少了内存占用和冲突问题。</li>
+<li>确保类的安全性：由于父类加载器在子类加载器之前尝试加载类，可以保证系统核心库类的安全性。例如，JDK 中的核心类库（如java.lang.String）由BootstrapClassLoader负责加载，因此无法通过自定义的类加载器来替换或修改这些核心类的行为，防止恶意代码对核心类进行篡改。</li>
+</ol>
+<p>例如在创建个Java.lang包，自定义一个StringTest类，在执行StringTest.class时进行了类加载，而这里违背了双亲委派，所以系统不允许加载运行</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928130251252.png" alt="image-20230928130251252"></p>
+<h1 id="类加载过程"><a href="#类加载过程" class="headerlink" title="类加载过程"></a>类加载过程</h1><p>前边用loadClass或forName进行了类加载，但例如加载的Person类都是在程序中写好的，若要进行利用就要考虑能否进行任意类加载</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">#loadClass</span><br><span class="line"><span class="type">ClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> ClassLoader.getSystemClassLoader();</span><br><span class="line"><span class="type">Class</span> <span class="variable">c</span> <span class="operator">=</span> cl.loadClass(<span class="string">&quot;Person&quot;</span>);</span><br><span class="line">#forName</span><br><span class="line">Class.forName(<span class="string">&quot;Person&quot;</span>);</span><br></pre></td></tr></table></figure>
+
+<p>先看下底层原理，主要用到以下几个方法：</p>
+<ul>
+<li>loadClass(加载指定的Java类)</li>
+<li>findLoadedClass(查找JVM已经加载过的类)</li>
+<li>findClass(查找指定的Java类)</li>
+<li>defineClass(将字节码转换为class对象)</li>
+<li>resolveClass(链接指定的Java类)</li>
+</ul>
+<h2 id="loadClass"><a href="#loadClass" class="headerlink" title="loadClass"></a>loadClass</h2><p>调用findLoadedClass()查找是否加载过该类，这里没加载所以c&#x3D;null，进入if这里就是双亲委派的过程</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928134106176.png" alt="image-20230928134106176"></p>
+<p>先判断是否有父类加载器，如果有则调用父类加载器的loadClass进行加载，这里进入ExtClassLoader的loadClass</p>
+<p>由于ExtClassLoader中没有loadClass(),所以还是调用到了他的父类ClassLoader的loadClass()，逻辑仍然是判断是有存在父类加载器，由于BootstrapClassLoader是用C写的，所以这里parent为null，通过else里的findBootstrapClassOrNull寻找</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928134451767.png" alt="image-20230928134451767"></p>
+<p>Person类并不在rt.jar包中，所以肯定也没有，接着到下边的findClass(),当前调用的是ExtClassLoader的findClass()，person类也不是扩展类所以自然也不会有</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928134921407.png" alt="image-20230928134921407"></p>
+<p>回到AppClassLoader的loadClass()，进入URLClassLoader.findClass()方法</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928135420529.png" alt="image-20230928135420529"></p>
+<p>接着调用到了他的父类SecureClassLoader的defineClass()</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">protected</span> <span class="keyword">final</span> Class&lt;?&gt; defineClass(String name,</span><br><span class="line">                                     <span class="type">byte</span>[] b, <span class="type">int</span> off, <span class="type">int</span> len,</span><br><span class="line">                                     CodeSource cs)</span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">return</span> defineClass(name, b, off, len, getProtectionDomain(cs));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>最后又回到了ClassLoader的defineClass()，</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928140942156.png" alt="image-20230928140942156"></p>
+<p>里边调用defineClass1，进行了类加载，defineClass1使用C实现的</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">native</span> Class&lt;?&gt; defineClass1(String name, <span class="type">byte</span>[] b, <span class="type">int</span> off, <span class="type">int</span> len,</span><br><span class="line">                                     ProtectionDomain pd, String source);</span><br></pre></td></tr></table></figure>
+
+<h2 id="foreName"><a href="#foreName" class="headerlink" title="foreName"></a>foreName</h2><p>在调试forName()时发现，它的底层也是调用loadClass()实现的</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928141353838.png" alt="image-20230928141353838"></p>
+<p>那它为啥会进行初始化呢？主要是在C中通过对initialize的判断，进行初始化设置，可参考：<a href="https://zhuanlan.zhihu.com/p/205324628">https://zhuanlan.zhihu.com/p/205324628</a></p>
+<h1 id="URLClassLoader"><a href="#URLClassLoader" class="headerlink" title="URLClassLoader"></a>URLClassLoader</h1><p>loadClass的调用过程主要涉及到ClassLoader和它的几个子类</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">ClassLoader—&gt;SecureClassLoader—&gt;URLClassLoader—&gt;AppClassLoader</span><br></pre></td></tr></table></figure>
+
+<p>类的加载就在于findClass()的defineClass()方法</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">loadClass—&gt;findClass—&gt;defineClass</span><br></pre></td></tr></table></figure>
+
+<p>其中URLClassLoader，可以加载URL中的类请求，那既然这样如果参数可控我们便可以进行任意类加载</p>
+<p>先构造恶意类，将其编译成class文件</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">Exec</span> &#123;</span><br><span class="line">    <span class="keyword">static</span> &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            Runtime.getRuntime().exec(<span class="string">&quot;calc&quot;</span>);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (IOException e) &#123;</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">RuntimeException</span>(e);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>ClassLoaderTest</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">ClassLoaderTest</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> ClassNotFoundException, MalformedURLException, InstantiationException, IllegalAccessException &#123;</span><br><span class="line">        <span class="type">URLClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">URLClassLoader</span>(<span class="keyword">new</span> <span class="title class_">URL</span>[]&#123;<span class="keyword">new</span> <span class="title class_">URL</span>(<span class="string">&quot;http://localhost:7777/&quot;</span>)&#125;);</span><br><span class="line">        <span class="type">Class</span> <span class="variable">exec</span> <span class="operator">=</span> cl.loadClass(<span class="string">&quot;Exec&quot;</span>);</span><br><span class="line">        exec.newInstance();</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928143257237.png" alt="image-20230928143257237"></p>
+<p>除此外也可以用file协议或者jar协议</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="type">URLClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">URLClassLoader</span>(<span class="keyword">new</span> <span class="title class_">URL</span>[]&#123;<span class="keyword">new</span> <span class="title class_">URL</span>(<span class="string">&quot;jar:file:///D:\\java\\Security\\Exec.jar!\\&quot;</span>)&#125;);</span><br><span class="line"><span class="type">Class</span> <span class="variable">exec</span> <span class="operator">=</span> cl.loadClass(<span class="string">&quot;Exec&quot;</span>);</span><br><span class="line"></span><br><span class="line"><span class="type">URLClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">URLClassLoader</span>(<span class="keyword">new</span> <span class="title class_">URL</span>[]&#123;<span class="keyword">new</span> <span class="title class_">URL</span>(<span class="string">&quot;file:///D:\\java\\Security\\&quot;</span>)&#125;);</span><br><span class="line"><span class="type">Class</span> <span class="variable">exec</span> <span class="operator">=</span> cl.loadClass(<span class="string">&quot;Exec&quot;</span>);</span><br></pre></td></tr></table></figure>
+
+<h1 id="自定义ClassLoader"><a href="#自定义ClassLoader" class="headerlink" title="自定义ClassLoader"></a>自定义ClassLoader</h1><p>自定义类加载器步骤：</p>
+<p>1、继承ClassLoader类</p>
+<p>2、覆盖findClass()方法</p>
+<p>3、在findClass()方法中调用defineClass()方法</p>
+<p>假设将Exec.class文件进行base64加密，加密后使用java自带的classLoader就不能进行初始化了，那就可以使用自定义的ClassLoader进行加载</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">package</span> ClassLoader;</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> java.io.*;</span><br><span class="line"><span class="keyword">import</span> java.nio.file.Files;</span><br><span class="line"><span class="keyword">import</span> java.nio.file.Paths;</span><br><span class="line"><span class="keyword">import</span> java.util.Base64;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">CustomClassLoader</span> <span class="keyword">extends</span> <span class="title class_">ClassLoader</span>&#123;</span><br><span class="line">    <span class="keyword">private</span> String classPath;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">CustomClassLoader</span><span class="params">(String classPath)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.classPath = classPath;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="type">byte</span>[] readFile(String path) <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        <span class="type">byte</span>[] bytes = Files.readAllBytes(Paths.get(path));</span><br><span class="line">        <span class="type">byte</span>[] decode = Base64.getDecoder().decode(bytes);</span><br><span class="line">        <span class="keyword">return</span> decode;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">protected</span> Class&lt;?&gt; findClass(String name) &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="type">String</span> <span class="variable">fullPath</span> <span class="operator">=</span> classPath+File.separator+name+<span class="string">&quot;.class&quot;</span>;</span><br><span class="line">            <span class="type">byte</span>[] bytes = readFile(fullPath);</span><br><span class="line">            <span class="keyword">return</span> defineClass(name,bytes,<span class="number">0</span>,bytes.length);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (IOException e) &#123;</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">RuntimeException</span>(e);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>使用readFile方法读取文件，并进行base64解密，之后调用defineClass进行加载</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">ClassLoaderTest</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> ClassNotFoundException, InstantiationException, IllegalAccessException &#123;</span><br><span class="line">        <span class="type">CustomClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">CustomClassLoader</span>(<span class="string">&quot;D:\\java\\Security&quot;</span>);</span><br><span class="line">        Class&lt;?&gt; c = cl.loadClass(<span class="string">&quot;Exec&quot;</span>);</span><br><span class="line">        c.newInstance();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928163349076.png" alt="image-20230928163349076"></p>
+]]></content>
+      <categories>
+        <category>Java</category>
+      </categories>
+      <tags>
+        <tag>Java安全</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>defaultReadObject分析</title>
     <url>/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/</url>
     <content><![CDATA[<p>起因是想重新了解下反序列化，在看HashMap的readObject时，看到了defaultReadObject()，想到在重写readOject()中基本都遇到过，于是想了解下这个函数的具体作用以及实现原理。</p>

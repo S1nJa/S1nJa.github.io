@@ -1,0 +1,340 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>ClassLoader动态类加载 | S1nJa's Blog</title><meta name="author" content="S1nJa"><meta name="copyright" content="S1nJa"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="在JNDI、RMI等攻击中，我们常会用到这么一段测试代码 123456789public class Exec &amp;#123;    static &amp;#123;        try &amp;#123;            Runtime.getRuntime().exec(&quot;calc&quot;);        &amp;#125; catch (IOException e) &amp;#123;">
+<meta property="og:type" content="article">
+<meta property="og:title" content="ClassLoader动态类加载">
+<meta property="og:url" content="https://s1nja.github.io/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/index.html">
+<meta property="og:site_name" content="S1nJa&#39;s Blog">
+<meta property="og:description" content="在JNDI、RMI等攻击中，我们常会用到这么一段测试代码 123456789public class Exec &amp;#123;    static &amp;#123;        try &amp;#123;            Runtime.getRuntime().exec(&quot;calc&quot;);        &amp;#125; catch (IOException e) &amp;#123;">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://s1nja.github.io/images/avatar.png">
+<meta property="article:published_time" content="2023-10-17T09:20:42.000Z">
+<meta property="article:modified_time" content="2023-10-17T09:21:34.196Z">
+<meta property="article:author" content="S1nJa">
+<meta property="article:tag" content="Java安全">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://s1nja.github.io/images/avatar.png"><link rel="shortcut icon" href="/img/favicon.png"><link rel="canonical" href="https://s1nja.github.io/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/index.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.xml","preload":false,"top_n_per_article":1,"unescape":false,"languages":{"hits_empty":"找不到您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: {"defaultEncoding":2,"translateDelay":0,"msgToTraditionalChinese":"繁","msgToSimplifiedChinese":"簡"},
+  noticeOutdate: undefined,
+  highlight: {"plugin":"highlighjs","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false},
+  copy: {
+    success: '复制成功',
+    error: '复制错误',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  source: {
+    justifiedGallery: {
+      js: 'https://cdn.jsdelivr.net/npm/flickr-justified-gallery/dist/fjGallery.min.js',
+      css: 'https://cdn.jsdelivr.net/npm/flickr-justified-gallery/dist/fjGallery.min.css'
+    }
+  },
+  isPhotoFigcaption: false,
+  islazyload: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'ClassLoader动态类加载',
+  isPost: true,
+  isHome: false,
+  isHighlightShrink: false,
+  isToc: true,
+  postUpdate: '2023-10-17 17:21:34'
+}</script><noscript><style type="text/css">
+  #nav {
+    opacity: 1
+  }
+  .justified-gallery img {
+    opacity: 1
+  }
+
+  #recent-posts time,
+  #post-meta time {
+    display: inline !important
+  }
+</style></noscript><script>(win=>{
+    win.saveToLocal = {
+      set: function setWithExpiry(key, value, ttl) {
+        if (ttl === 0) return
+        const now = new Date()
+        const expiryDay = ttl * 86400000
+        const item = {
+          value: value,
+          expiry: now.getTime() + expiryDay,
+        }
+        localStorage.setItem(key, JSON.stringify(item))
+      },
+
+      get: function getWithExpiry(key) {
+        const itemStr = localStorage.getItem(key)
+
+        if (!itemStr) {
+          return undefined
+        }
+        const item = JSON.parse(itemStr)
+        const now = new Date()
+
+        if (now.getTime() > item.expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return item.value
+      }
+    }
+  
+    win.getScript = url => new Promise((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = url
+      script.async = true
+      script.onerror = reject
+      script.onload = script.onreadystatechange = function() {
+        const loadState = this.readyState
+        if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+        script.onload = script.onreadystatechange = null
+        resolve()
+      }
+      document.head.appendChild(script)
+    })
+  
+    win.getCSS = (url,id = false) => new Promise((resolve, reject) => {
+      const link = document.createElement('link')
+      link.rel = 'stylesheet'
+      link.href = url
+      if (id) link.id = id
+      link.onerror = reject
+      link.onload = link.onreadystatechange = function() {
+        const loadState = this.readyState
+        if (loadState && loadState !== 'loaded' && loadState !== 'complete') return
+        link.onload = link.onreadystatechange = null
+        resolve()
+      }
+      document.head.appendChild(link)
+    })
+  
+      win.activateDarkMode = function () {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      win.activateLightMode = function () {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+      const t = saveToLocal.get('theme')
+    
+          if (t === 'dark') activateDarkMode()
+          else if (t === 'light') activateLightMode()
+        
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        if (asideStatus === 'hide') {
+          document.documentElement.classList.add('hide-aside')
+        } else {
+          document.documentElement.classList.remove('hide-aside')
+        }
+      }
+    
+    const detectApple = () => {
+      if(/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)){
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+    })(window)</script><meta name="generator" content="Hexo 6.3.0"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img is-center"><img src="/images/avatar.png" onerror="onerror=null;src='/img/friend_404.gif'" alt="avatar"/></div><div class="sidebar-site-data site-data is-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">2</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">2</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">1</div></a></div><hr class="custom-hr"/><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg fixed" id="page-header"><nav id="nav"><span id="blog-info"><a href="/" title="S1nJa's Blog"><span class="site-name">S1nJa's Blog</span></a></span><div id="menus"><div id="search-button"><a class="site-page social-icon search" href="javascript:void(0);"><i class="fas fa-search fa-fw"></i><span> 搜索</span></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 主页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div></div><div id="toggle-menu"><a class="site-page" href="javascript:void(0);"><i class="fas fa-bars fa-fw"></i></a></div></div></nav><div id="post-info"><h1 class="post-title">ClassLoader动态类加载</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2023-10-17T09:20:42.000Z" title="发表于 2023-10-17 17:20:42">2023-10-17</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2023-10-17T09:21:34.196Z" title="更新于 2023-10-17 17:21:34">2023-10-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/Java/">Java</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">字数总计:</span><span class="word-count">2.3k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>8分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title="ClassLoader动态类加载"><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">阅读量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="post-content" id="article-container"><p>在JNDI、RMI等攻击中，我们常会用到这么一段测试代码</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">Exec</span> &#123;</span><br><span class="line">    <span class="keyword">static</span> &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            Runtime.getRuntime().exec(<span class="string">&quot;calc&quot;</span>);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (IOException e) &#123;</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">RuntimeException</span>(e);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>将它反编译成class文件后，开启监听服务即可进行远程类加载，但这段代码中没有main等执行方法，它又为啥会执行呢？这其实跟类加载机制有关</p>
+<h1 id="类加载机制"><a href="#类加载机制" class="headerlink" title="类加载机制"></a>类加载机制</h1><p>类的加载分为以下几步：</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230927210744873.png" alt="image-20230927210744873"></p>
+<p>类加载初始化和实例化的时候会执行对应的代码块</p>
+<ul>
+<li>初始化：静态代码块(一次执行中静态代码块只能执行一次)</li>
+<li>实例化：匿名代码块、构造方法</li>
+</ul>
+<h2 id="实例"><a href="#实例" class="headerlink" title="实例"></a><strong>实例</strong></h2><p>以Person类为例</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">Person</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> String name;</span><br><span class="line">    <span class="keyword">private</span> <span class="type">int</span> age;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="type">int</span> id;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">static</span> &#123;</span><br><span class="line">        System.out.println(<span class="string">&quot;静态代码块&quot;</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span>  <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">staticAction</span><span class="params">()</span>&#123;</span><br><span class="line">        System.out.println(<span class="string">&quot;静态方法&quot;</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    &#123;</span><br><span class="line">        System.out.println(<span class="string">&quot;匿名代码块&quot;</span>);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">Person</span><span class="params">()</span> &#123;</span><br><span class="line">        System.out.println(<span class="string">&quot;无参构造方法&quot;</span>);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">Person</span><span class="params">(String name, <span class="type">int</span> age)</span> &#123;</span><br><span class="line">        System.out.println(<span class="string">&quot;有参构造方法&quot;</span>);</span><br><span class="line">        <span class="built_in">this</span>.name = name;</span><br><span class="line">        <span class="built_in">this</span>.age = age;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>类进行实例化</strong></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span>  &#123;</span><br><span class="line">    <span class="keyword">new</span> <span class="title class_">Person</span>(<span class="string">&quot;S1nJa&quot;</span>,<span class="number">2</span>);</span><br><span class="line">&#125;    </span><br></pre></td></tr></table></figure>
+
+<p>结果：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">静态代码块</span><br><span class="line">匿名代码块</span><br><span class="line">有参构造方法</span><br></pre></td></tr></table></figure>
+
+<p><strong>调用静态方法</strong></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span>  &#123;</span><br><span class="line">    Person.staticAction();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>结果：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">静态代码块</span><br><span class="line">静态方法</span><br></pre></td></tr></table></figure>
+
+<p><strong>class类加载</strong></p>
+<p>用class关键字时，只进行了类加载并没有进行初始化，所以不会调用任何代码块</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> &#123;</span><br><span class="line">    <span class="type">Class</span> <span class="variable">c</span> <span class="operator">=</span> Person.class;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>Class.forName</strong></p>
+<p><code>Class.forName()</code>默认会调用forName0，而第二个参数默认为true，所以会进行初始化</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230927213440184.png" alt="image-20230927213440184"></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> ClassNotFoundException &#123;	</span><br><span class="line">    Class.forName(<span class="string">&quot;Person&quot;</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>结果：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">静态代码块</span><br></pre></td></tr></table></figure>
+
+<p>若想不进行初始化则可以调用它的其他构造方法</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> ClassNotFoundException &#123;      </span><br><span class="line">       <span class="type">ClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> ClassLoader.getSystemClassLoader();</span><br><span class="line">       Class.forName(<span class="string">&quot;Person&quot;</span>,<span class="literal">false</span>,cl);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>loadClass</strong></p>
+<p>默认不进行初始化，需要结合<code>newInstance()</code></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">ClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> ClassLoader.getSystemClassLoader();</span><br><span class="line"><span class="type">Class</span> <span class="variable">c</span> <span class="operator">=</span> cl.loadClass(<span class="string">&quot;Person&quot;</span>);</span><br><span class="line">c.newInstance();</span><br></pre></td></tr></table></figure>
+
+<p>结果：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">静态代码块</span><br><span class="line">匿名代码块</span><br><span class="line">无参构造方法</span><br></pre></td></tr></table></figure>
+
+<p>JNDI注入等，都是通过lookup中调用<code>newInstance()</code>实现的，所以会实例化class文件中的恶意类，调用对应的恶意代码块。而这些类的初始化、实例化都是由类加载器完成的，所以看下类加载器。</p>
+<h1 id="类加载器"><a href="#类加载器" class="headerlink" title="类加载器"></a>类加载器</h1><p>类加载器主要分为两类：</p>
+<ul>
+<li><strong>JVM 默认类加载器</strong><br>主要由 “引导类加载器”、“扩展类加载器”、“系统类加载器” 三方面组成。</li>
+<li><strong>用户自定义类加载器</strong><br>用户可以编写继承 java.lang.ClassLoader类的自定义类来自定义类加载器。</li>
+</ul>
+<h2 id="引导类加载器（BootstrapClassLoader）"><a href="#引导类加载器（BootstrapClassLoader）" class="headerlink" title="引导类加载器（BootstrapClassLoader）"></a>引导类加载器（BootstrapClassLoader）</h2><p>底层原生代码是C++语言编写，属于jvm一部分，不继承java.lang.ClassLoader类，也没有父加载器，主要负责加载&#x2F;jre&#x2F;lib&#x2F;rt.jar包下的内容</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928105919516.png" alt="image-20230928105919516"></p>
+<p>随便找了个&#x2F;jre&#x2F;lib&#x2F;rt.jar包下的类Applet，查看它的父类加载器，由于他是被BootstrapClassLoader加载的，所以并没有父类加载器，结果为null。</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928110137322.png" alt="image-20230928110137322"></p>
+<h2 id="扩展类加载器-ExtensionsClassLoader"><a href="#扩展类加载器-ExtensionsClassLoader" class="headerlink" title="扩展类加载器(ExtensionsClassLoader)"></a>扩展类加载器(ExtensionsClassLoader)</h2><p>主要负责加载&#x2F;jre&#x2F;lib&#x2F;ext或者java.ext.dirs中指明目录对的java扩展库</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928110520142.png" alt="image-20230928110520142"></p>
+<p>该类位于<code>sun.misc.Launcher$ExtClassLoader</code></p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928110843548.png" alt="image-20230928110843548"></p>
+<h2 id="系统类加载器（AppClassLoader）"><a href="#系统类加载器（AppClassLoader）" class="headerlink" title="系统类加载器（AppClassLoader）"></a>系统类加载器（AppClassLoader）</h2><p>主要负责加载用户类路径(classPath)上的类库，如果我们没有实现自定义的类加载器那它就是我们程序中的默认加载器。</p>
+<p>ClassLoaderTest本身就是由它来加载的，该类位于<code>sun.misc.Launcher$AppClassLoader</code></p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928111357642.png" alt="image-20230928111357642"></p>
+<h2 id="自定义类加载器-CustomClassLoader"><a href="#自定义类加载器-CustomClassLoader" class="headerlink" title="自定义类加载器(CustomClassLoader)"></a>自定义类加载器(CustomClassLoader)</h2><p>可以通过继承java.lang.ClassLoader类的方式实现自己的类加载器</p>
+<h1 id="双亲委派"><a href="#双亲委派" class="headerlink" title="双亲委派"></a>双亲委派</h1><p>一般来说，当需要加载一个类时，JVM的三种默认类加载器是按按需加载的方式相互配合使用，这就衍生出了双亲委派模式</p>
+<img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928124921659.png" alt="image-20230928124921659" style="zoom: 80%;">
+
+<p>双亲委派的意思是：当类加载器需要加载一个类时，首先它会把这个类请求委派给父类加载器去完成 (如AppClassLoader会委派给ExtClassLoader，ExtClassLoader会委派给BootStrapClassLoader)。一直递归到顶层，当父加载器无法完成这个请求时，子类才会尝试去加载。这里的双亲其实只是翻译问题，他们之间并不存在继承关系，只是逻辑上的指向。</p>
+<h2 id="优点"><a href="#优点" class="headerlink" title="优点"></a>优点</h2><ol>
+<li>避免重复加载：双亲委派模型使得每个类加载器首先向上委派给父类加载器，因此在整个类加载器层次结构中，任何类都只会被加载一次。这避免了同一个类被多个不同的类加载器重复加载，减少了内存占用和冲突问题。</li>
+<li>确保类的安全性：由于父类加载器在子类加载器之前尝试加载类，可以保证系统核心库类的安全性。例如，JDK 中的核心类库（如java.lang.String）由BootstrapClassLoader负责加载，因此无法通过自定义的类加载器来替换或修改这些核心类的行为，防止恶意代码对核心类进行篡改。</li>
+</ol>
+<p>例如在创建个Java.lang包，自定义一个StringTest类，在执行StringTest.class时进行了类加载，而这里违背了双亲委派，所以系统不允许加载运行</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928130251252.png" alt="image-20230928130251252"></p>
+<h1 id="类加载过程"><a href="#类加载过程" class="headerlink" title="类加载过程"></a>类加载过程</h1><p>前边用loadClass或forName进行了类加载，但例如加载的Person类都是在程序中写好的，若要进行利用就要考虑能否进行任意类加载</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">#loadClass</span><br><span class="line"><span class="type">ClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> ClassLoader.getSystemClassLoader();</span><br><span class="line"><span class="type">Class</span> <span class="variable">c</span> <span class="operator">=</span> cl.loadClass(<span class="string">&quot;Person&quot;</span>);</span><br><span class="line">#forName</span><br><span class="line">Class.forName(<span class="string">&quot;Person&quot;</span>);</span><br></pre></td></tr></table></figure>
+
+<p>先看下底层原理，主要用到以下几个方法：</p>
+<ul>
+<li>loadClass(加载指定的Java类)</li>
+<li>findLoadedClass(查找JVM已经加载过的类)</li>
+<li>findClass(查找指定的Java类)</li>
+<li>defineClass(将字节码转换为class对象)</li>
+<li>resolveClass(链接指定的Java类)</li>
+</ul>
+<h2 id="loadClass"><a href="#loadClass" class="headerlink" title="loadClass"></a>loadClass</h2><p>调用findLoadedClass()查找是否加载过该类，这里没加载所以c&#x3D;null，进入if这里就是双亲委派的过程</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928134106176.png" alt="image-20230928134106176"></p>
+<p>先判断是否有父类加载器，如果有则调用父类加载器的loadClass进行加载，这里进入ExtClassLoader的loadClass</p>
+<p>由于ExtClassLoader中没有loadClass(),所以还是调用到了他的父类ClassLoader的loadClass()，逻辑仍然是判断是有存在父类加载器，由于BootstrapClassLoader是用C写的，所以这里parent为null，通过else里的findBootstrapClassOrNull寻找</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928134451767.png" alt="image-20230928134451767"></p>
+<p>Person类并不在rt.jar包中，所以肯定也没有，接着到下边的findClass(),当前调用的是ExtClassLoader的findClass()，person类也不是扩展类所以自然也不会有</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928134921407.png" alt="image-20230928134921407"></p>
+<p>回到AppClassLoader的loadClass()，进入URLClassLoader.findClass()方法</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928135420529.png" alt="image-20230928135420529"></p>
+<p>接着调用到了他的父类SecureClassLoader的defineClass()</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">protected</span> <span class="keyword">final</span> Class&lt;?&gt; defineClass(String name,</span><br><span class="line">                                     <span class="type">byte</span>[] b, <span class="type">int</span> off, <span class="type">int</span> len,</span><br><span class="line">                                     CodeSource cs)</span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">return</span> defineClass(name, b, off, len, getProtectionDomain(cs));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>最后又回到了ClassLoader的defineClass()，</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928140942156.png" alt="image-20230928140942156"></p>
+<p>里边调用defineClass1，进行了类加载，defineClass1使用C实现的</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">native</span> Class&lt;?&gt; defineClass1(String name, <span class="type">byte</span>[] b, <span class="type">int</span> off, <span class="type">int</span> len,</span><br><span class="line">                                     ProtectionDomain pd, String source);</span><br></pre></td></tr></table></figure>
+
+<h2 id="foreName"><a href="#foreName" class="headerlink" title="foreName"></a>foreName</h2><p>在调试forName()时发现，它的底层也是调用loadClass()实现的</p>
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928141353838.png" alt="image-20230928141353838"></p>
+<p>那它为啥会进行初始化呢？主要是在C中通过对initialize的判断，进行初始化设置，可参考：<a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/205324628">https://zhuanlan.zhihu.com/p/205324628</a></p>
+<h1 id="URLClassLoader"><a href="#URLClassLoader" class="headerlink" title="URLClassLoader"></a>URLClassLoader</h1><p>loadClass的调用过程主要涉及到ClassLoader和它的几个子类</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ClassLoader—&gt;SecureClassLoader—&gt;URLClassLoader—&gt;AppClassLoader</span><br></pre></td></tr></table></figure>
+
+<p>类的加载就在于findClass()的defineClass()方法</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">loadClass—&gt;findClass—&gt;defineClass</span><br></pre></td></tr></table></figure>
+
+<p>其中URLClassLoader，可以加载URL中的类请求，那既然这样如果参数可控我们便可以进行任意类加载</p>
+<p>先构造恶意类，将其编译成class文件</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">Exec</span> &#123;</span><br><span class="line">    <span class="keyword">static</span> &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            Runtime.getRuntime().exec(<span class="string">&quot;calc&quot;</span>);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (IOException e) &#123;</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">RuntimeException</span>(e);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>ClassLoaderTest</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">ClassLoaderTest</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> ClassNotFoundException, MalformedURLException, InstantiationException, IllegalAccessException &#123;</span><br><span class="line">        <span class="type">URLClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">URLClassLoader</span>(<span class="keyword">new</span> <span class="title class_">URL</span>[]&#123;<span class="keyword">new</span> <span class="title class_">URL</span>(<span class="string">&quot;http://localhost:7777/&quot;</span>)&#125;);</span><br><span class="line">        <span class="type">Class</span> <span class="variable">exec</span> <span class="operator">=</span> cl.loadClass(<span class="string">&quot;Exec&quot;</span>);</span><br><span class="line">        exec.newInstance();</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928143257237.png" alt="image-20230928143257237"></p>
+<p>除此外也可以用file协议或者jar协议</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">URLClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">URLClassLoader</span>(<span class="keyword">new</span> <span class="title class_">URL</span>[]&#123;<span class="keyword">new</span> <span class="title class_">URL</span>(<span class="string">&quot;jar:file:///D:\\java\\Security\\Exec.jar!\\&quot;</span>)&#125;);</span><br><span class="line"><span class="type">Class</span> <span class="variable">exec</span> <span class="operator">=</span> cl.loadClass(<span class="string">&quot;Exec&quot;</span>);</span><br><span class="line"></span><br><span class="line"><span class="type">URLClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">URLClassLoader</span>(<span class="keyword">new</span> <span class="title class_">URL</span>[]&#123;<span class="keyword">new</span> <span class="title class_">URL</span>(<span class="string">&quot;file:///D:\\java\\Security\\&quot;</span>)&#125;);</span><br><span class="line"><span class="type">Class</span> <span class="variable">exec</span> <span class="operator">=</span> cl.loadClass(<span class="string">&quot;Exec&quot;</span>);</span><br></pre></td></tr></table></figure>
+
+<h1 id="自定义ClassLoader"><a href="#自定义ClassLoader" class="headerlink" title="自定义ClassLoader"></a>自定义ClassLoader</h1><p>自定义类加载器步骤：</p>
+<p>1、继承ClassLoader类</p>
+<p>2、覆盖findClass()方法</p>
+<p>3、在findClass()方法中调用defineClass()方法</p>
+<p>假设将Exec.class文件进行base64加密，加密后使用java自带的classLoader就不能进行初始化了，那就可以使用自定义的ClassLoader进行加载</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> ClassLoader;</span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> java.io.*;</span><br><span class="line"><span class="keyword">import</span> java.nio.file.Files;</span><br><span class="line"><span class="keyword">import</span> java.nio.file.Paths;</span><br><span class="line"><span class="keyword">import</span> java.util.Base64;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">CustomClassLoader</span> <span class="keyword">extends</span> <span class="title class_">ClassLoader</span>&#123;</span><br><span class="line">    <span class="keyword">private</span> String classPath;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">CustomClassLoader</span><span class="params">(String classPath)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.classPath = classPath;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="type">byte</span>[] readFile(String path) <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        <span class="type">byte</span>[] bytes = Files.readAllBytes(Paths.get(path));</span><br><span class="line">        <span class="type">byte</span>[] decode = Base64.getDecoder().decode(bytes);</span><br><span class="line">        <span class="keyword">return</span> decode;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">protected</span> Class&lt;?&gt; findClass(String name) &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="type">String</span> <span class="variable">fullPath</span> <span class="operator">=</span> classPath+File.separator+name+<span class="string">&quot;.class&quot;</span>;</span><br><span class="line">            <span class="type">byte</span>[] bytes = readFile(fullPath);</span><br><span class="line">            <span class="keyword">return</span> defineClass(name,bytes,<span class="number">0</span>,bytes.length);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (IOException e) &#123;</span><br><span class="line">            <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">RuntimeException</span>(e);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>使用readFile方法读取文件，并进行base64解密，之后调用defineClass进行加载</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">ClassLoaderTest</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> ClassNotFoundException, InstantiationException, IllegalAccessException &#123;</span><br><span class="line">        <span class="type">CustomClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">CustomClassLoader</span>(<span class="string">&quot;D:\\java\\Security&quot;</span>);</span><br><span class="line">        Class&lt;?&gt; c = cl.loadClass(<span class="string">&quot;Exec&quot;</span>);</span><br><span class="line">        c.newInstance();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p><img src="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/image-20230928163349076.png" alt="image-20230928163349076"></p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta">文章作者: </span><span class="post-copyright-info"><a href="https://S1nJa.github.io">S1nJa</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta">文章链接: </span><span class="post-copyright-info"><a href="https://s1nja.github.io/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/">https://s1nja.github.io/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta">版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来自 <a href="https://S1nJa.github.io" target="_blank">S1nJa's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Java%E5%AE%89%E5%85%A8/">Java安全</a></div><div class="post_share"><div class="social-share" data-image="/images/avatar.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><div class="next-post pull-full"><a href="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/" title="defaultReadObject分析"><div class="cover" style="background: var(--default-bg-color)"></div><div class="pagination-info"><div class="label">下一篇</div><div class="next_info">defaultReadObject分析</div></div></a></div></nav><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="gitalk-container"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info"><div class="is-center"><div class="avatar-img"><img src="/images/avatar.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info__name">S1nJa</div><div class="author-info__description"></div></div><div class="card-info-data site-data is-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">2</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">2</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">1</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/S1nJa"><i class="fab fa-github"></i><span>Follow Me</span></a></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">工作后发现对Java的了解都只停留于表面，于是有了重新学习的想法，本次更侧重于对Java的学习，补充之前没有关注的细节。</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#%E7%B1%BB%E5%8A%A0%E8%BD%BD%E6%9C%BA%E5%88%B6"><span class="toc-number">1.</span> <span class="toc-text">类加载机制</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%AE%9E%E4%BE%8B"><span class="toc-number">1.1.</span> <span class="toc-text">实例</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8"><span class="toc-number">2.</span> <span class="toc-text">类加载器</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%BC%95%E5%AF%BC%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8%EF%BC%88BootstrapClassLoader%EF%BC%89"><span class="toc-number">2.1.</span> <span class="toc-text">引导类加载器（BootstrapClassLoader）</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%89%A9%E5%B1%95%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8-ExtensionsClassLoader"><span class="toc-number">2.2.</span> <span class="toc-text">扩展类加载器(ExtensionsClassLoader)</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%B3%BB%E7%BB%9F%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8%EF%BC%88AppClassLoader%EF%BC%89"><span class="toc-number">2.3.</span> <span class="toc-text">系统类加载器（AppClassLoader）</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E8%87%AA%E5%AE%9A%E4%B9%89%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8-CustomClassLoader"><span class="toc-number">2.4.</span> <span class="toc-text">自定义类加载器(CustomClassLoader)</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#%E5%8F%8C%E4%BA%B2%E5%A7%94%E6%B4%BE"><span class="toc-number">3.</span> <span class="toc-text">双亲委派</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BC%98%E7%82%B9"><span class="toc-number">3.1.</span> <span class="toc-text">优点</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#%E7%B1%BB%E5%8A%A0%E8%BD%BD%E8%BF%87%E7%A8%8B"><span class="toc-number">4.</span> <span class="toc-text">类加载过程</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#loadClass"><span class="toc-number">4.1.</span> <span class="toc-text">loadClass</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#foreName"><span class="toc-number">4.2.</span> <span class="toc-text">foreName</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#URLClassLoader"><span class="toc-number">5.</span> <span class="toc-text">URLClassLoader</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#%E8%87%AA%E5%AE%9A%E4%B9%89ClassLoader"><span class="toc-number">6.</span> <span class="toc-text">自定义ClassLoader</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/" title="ClassLoader动态类加载">ClassLoader动态类加载</a><time datetime="2023-10-17T09:20:42.000Z" title="发表于 2023-10-17 17:20:42">2023-10-17</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/" title="defaultReadObject分析">defaultReadObject分析</a><time datetime="2023-09-10T16:00:00.000Z" title="发表于 2023-09-11 00:00:00">2023-09-11</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2020 - 2023 By S1nJa</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="translateLink" type="button" title="简繁转换">繁</button><button id="darkmode" type="button" title="浅色和深色模式转换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside_config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="直达评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="/js/tw_cn.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><div class="js-pjax"><script>function loadGitalk () {
+  function initGitalk () {
+    var gitalk = new Gitalk(Object.assign({
+      clientID: '5b69099e04e4575c9d75',
+      clientSecret: '7d11b5aea4e82daf376ce9015cfa5047ca6a7b29',
+      repo: 's1nja.github.io',
+      owner: 'S1nJa',
+      admin: ['S1nJa'],
+      id: 'd3d9daade4c9a71ab27a766a3223049e',
+      updateCountCallback: commentCount
+    },null))
+
+    gitalk.render('gitalk-container')
+  }
+
+  if (typeof Gitalk === 'function') initGitalk()
+  else {
+    getCSS('https://cdn.jsdelivr.net/npm/gitalk/dist/gitalk.min.css')
+    getScript('https://cdn.jsdelivr.net/npm/gitalk/dist/gitalk.min.js').then(initGitalk)
+  }
+}
+
+function commentCount(n){
+  let isCommentCount = document.querySelector('#post-meta .gitalk-comment-count')
+  if (isCommentCount) {
+    isCommentCount.textContent= n
+  }
+}
+
+if ('Gitalk' === 'Gitalk' || !true) {
+  if (true) btf.loadComment(document.getElementById('gitalk-container'), loadGitalk)
+  else loadGitalk()
+} else {
+  function loadOtherComment () {
+    loadGitalk()
+  }
+}</script></div><canvas class="fireworks" mobile="false"></canvas><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/fireworks.min.js"></script><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/activate-power-mode.min.js"></script><script>POWERMODE.colorful = true;
+POWERMODE.shake = false;
+POWERMODE.mobile = false;
+document.body.addEventListener('input', POWERMODE);
+</script><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="is-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据库加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div class="no-result" id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>
