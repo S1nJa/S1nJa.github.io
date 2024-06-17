@@ -147,6 +147,101 @@
       </tags>
   </entry>
   <entry>
+    <title>defaultReadObject分析</title>
+    <url>/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/</url>
+    <content><![CDATA[<p>起因是想重新了解下反序列化，在看HashMap的readObject时，看到了defaultReadObject()，想到在重写readOject()中基本都遇到过，于是想了解下这个函数的具体作用以及实现原理。</p>
+<h1 id="readObject"><a href="#readObject" class="headerlink" title="readObject"></a>readObject</h1><p>先看下执行原生readOject()都发生了什么</p>
+<p>测试代码：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">SerializeTest</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line">        <span class="type">Animals</span> <span class="variable">animals</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Animals</span>(<span class="string">&quot;111&quot;</span>, <span class="string">&quot;222&quot;</span>, <span class="string">&quot;333&quot;</span>);</span><br><span class="line">        <span class="type">ByteArrayOutputStream</span> <span class="variable">bos</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayOutputStream</span>();</span><br><span class="line">        <span class="type">ObjectOutputStream</span> <span class="variable">oos</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectOutputStream</span>(bos);</span><br><span class="line">        oos.writeObject(animals);</span><br><span class="line">        <span class="type">byte</span>[] bytes = bos.toByteArray();</span><br><span class="line"></span><br><span class="line">        <span class="type">ByteArrayInputStream</span> <span class="variable">bis</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayInputStream</span>(bytes);</span><br><span class="line">        <span class="type">ObjectInputStream</span> <span class="variable">ois</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectInputStream</span>(bis);</span><br><span class="line">        <span class="type">Animals</span> <span class="variable">o</span> <span class="operator">=</span> (Animals)ois.readObject();</span><br><span class="line">        System.out.println(o.toString());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>Animals</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">Animals</span> <span class="keyword">implements</span> <span class="title class_">Serializable</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> String dog;</span><br><span class="line">    <span class="keyword">public</span> String cat;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">transient</span> String pet;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">Animals</span><span class="params">(String dog, String cat, String pet)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.dog = dog;</span><br><span class="line">        <span class="built_in">this</span>.cat = cat;</span><br><span class="line">        <span class="built_in">this</span>.pet = pet;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> String <span class="title function_">toString</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="string">&quot;Animals&#123;&quot;</span> +</span><br><span class="line">                <span class="string">&quot;dog=&#x27;&quot;</span> + dog + <span class="string">&#x27;\&#x27;&#x27;</span> +</span><br><span class="line">                <span class="string">&quot;, cat=&#x27;&quot;</span> + cat + <span class="string">&#x27;\&#x27;&#x27;</span> +</span><br><span class="line">                <span class="string">&quot;, pet=&#x27;&quot;</span> + pet + <span class="string">&#x27;\&#x27;&#x27;</span> +</span><br><span class="line">                <span class="string">&#x27;&#125;&#x27;</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="流程分析"><a href="#流程分析" class="headerlink" title="流程分析"></a>流程分析</h2><p>在执行<code>readOject()</code>后会执行<code>readOject0</code>，上半部分主要是快数据模式的判断，详细点说就是：在序列化和反序列化时，会采用块模式进行存储提高效率</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910223737867.png" alt="image-20230910223737867"></p>
+<p>而这里就是判断是否为该模式，是的话则检查当前块中是否还有剩余的数据，如果有的话则说明(有剩余未处理的数据),会抛出异常；如若没问题，最后就是将该模式设为false关闭掉。</p>
+<p>这个块数据模式的设置就在<code>ObjectInputStream</code>，其中<code>bin</code>的值就是该模式下的序列化数据</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="title function_">ObjectInputStream</span><span class="params">(InputStream in)</span> <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">    verifySubclass();</span><br><span class="line">    bin = <span class="keyword">new</span> <span class="title class_">BlockDataInputStream</span>(in);</span><br><span class="line">    handles = <span class="keyword">new</span> <span class="title class_">HandleTable</span>(<span class="number">10</span>);</span><br><span class="line">    vlist = <span class="keyword">new</span> <span class="title class_">ValidationList</span>();</span><br><span class="line">    enableOverride = <span class="literal">false</span>;</span><br><span class="line">    readStreamHeader();</span><br><span class="line">    bin.setBlockDataMode(<span class="literal">true</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>之后<code>tc = bin.peekByte()) == TC_RESET</code> 进行读取一个字节的数据来进行判断，经过一级级调用最后到了<code>read()</code>此时pos为4，</p>
+<blockquote>
+<p>peekByte方法，不是读取当前的字节，而是后一个字节。但是readByte方法则是读取当前所在的字节，不是后一个。这两个方法还是不一样的！</p>
+</blockquote>
+<p>所以取出的数据即：115赋值给tc（前边的-84，-19，0，5是序列化数据开头的标识信息）</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910224632288.png" alt="image-20230910224632288"></p>
+<p>switch语句找到对应115的case语句，处理对象数据，跟进下readOrdinaryObject</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">case</span> TC_OBJECT:</span><br><span class="line">    <span class="keyword">return</span> checkResolve(readOrdinaryObject(unshared));</span><br></pre></td></tr></table></figure>
+
+<p>首先判断读取一个字节数据进行判断(刚有提到readByte是读取当前字节，所以及时pos刚才自增了单读出来的还是115)，接着到了readClassDesc()读取类描述符。</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910230103059.png" alt="image-20230910230103059"></p>
+<p>这次调用的是peekByte()，所以读取下一个字节114，进入TO_CLASSDESC处理类对象 (现在等于是在TC_OBJECT 对象数据中处理TO_CLASSDESC类数据)</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910230556731.png" alt="image-20230910230556731"></p>
+<p>进入<code>readNonProxyDesc()</code>，主要分为两部<code>readClassDescriptor()</code>和<code>resolveClass()</code></p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910230950256.png" alt="image-20230910230950256"></p>
+<p>先看<code>readClassDescriptor()</code>，里边又执行了<code>readNonProxy()</code>，主要是拿到类中的两个字段——&gt;cat、dog</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910231235708.png" alt="image-20230910231235708"></p>
+<p>取出后回到<code>readNonProxyDesc()</code>，将<code>readClassDescriptor()</code>获取到的类及其字段返回给readDesc属性，通过<code>resolveClass()</code>默认类加载器加载了readDesc指定名称的类即Animals，并触发类的初始化</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">protected</span> Class&lt;?&gt; resolveClass(ObjectStreamClass desc)</span><br><span class="line">    <span class="keyword">throws</span> IOException, ClassNotFoundException</span><br><span class="line">&#123;</span><br><span class="line">    <span class="type">String</span> <span class="variable">name</span> <span class="operator">=</span> desc.getName();</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> Class.forName(name, <span class="literal">false</span>, latestUserDefinedLoader());</span><br><span class="line">    &#125; <span class="keyword">catch</span> (ClassNotFoundException ex) &#123;</span><br><span class="line">        Class&lt;?&gt; cl = primClasses.get(name);</span><br><span class="line">        <span class="keyword">if</span> (cl != <span class="literal">null</span>) &#123;</span><br><span class="line">            <span class="keyword">return</span> cl;</span><br><span class="line">        &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">            <span class="keyword">throw</span> ex;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>接着回到<code>readOrdinaryObject()</code>，将刚才加载的类赋值给desc，并判断其是否可以进行反序列化，接着通过forClass拿到目标class对象</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910231704288.png" alt="image-20230910231704288"></p>
+<p>下边执行<code>isInstantiable()</code>判断其是否可以进行实例化，之后实例化了desc，这时obj就成为了真正的<code>Animals</code>对象。(这里有个单例问题后边再说)</p>
+<p>Animals实例创建好之后，还需要对其中的每个字段进行填充，相关操作体现在readSerialData方法中</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910232845616.png" alt="image-20230910232845616"></p>
+<p><code>readSerialData</code>方法有两种情况：</p>
+<p>这个方法首先会对通过<code>hasReadObjectMethod()</code>对传入的对应描述符对象进行判断，看其是否存在<code>readObjectMethod</code>属性，存在就通过反射调用</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910233216207.png" alt="image-20230910233216207"></p>
+<p>而我们在Animals类中并没有重写<code>readOject()</code>，所以走到了下边else中的<code>defaultReadFields()</code></p>
+<p>其中通过反序列化读取到各字段的值，并反射对其进行填充，此刻obj对象实例，已经有了对应的字段和值</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910233647638.png" alt="image-20230910233647638"></p>
+<h3 id="单例问题"><a href="#单例问题" class="headerlink" title="单例问题"></a>单例问题</h3><p>走出<code>readSerialData()</code>后，就到了下边的<code>hasReadResolveMethod</code>()，判断是否有<code>ReadResolve</code>方法</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910233905584.png" alt="image-20230910233905584"></p>
+<p>而这个方法其实就是为了解决单例问题的，在前边有这么一段代码，当调用newInstance()进行实例化后，此时JVM会为其创建一个新的实例对象，这种做法会破坏单例模式。 </p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">try</span> &#123;</span><br><span class="line">    obj = desc.isInstantiable() ? desc.newInstance() : <span class="literal">null</span>;</span><br><span class="line">&#125; <span class="keyword">catch</span> (Exception ex) &#123;</span><br></pre></td></tr></table></figure>
+
+<p>所以可以用<code>readResolve()</code>解决这个问题</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">private</span> Object <span class="title function_">readResolve</span><span class="params">()</span> &#123;</span><br><span class="line"> <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">Animals</span>();   </span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>当然这个对当前反序列化没有影响，所以了解下即可，可参考：<a href="https://zhuanlan.zhihu.com/p/136769959">单例、序列化和readResolve()方法 - 知乎 (zhihu.com)</a></p>
+<h1 id="重写readObejct"><a href="#重写readObejct" class="headerlink" title="重写readObejct"></a>重写readObejct</h1><p>在上边提到<code>readSerialData()</code>有两种情况，分别是调用<code>readObject()</code>和<code>defaultReadFields()</code>填充字段，所以这里看下重写<code>readOject()</code>后会怎样</p>
+<p>在Animals类中加上：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title function_">readObject</span><span class="params">(ObjectInputStream s)</span> <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>前边都是一样的所以就不看了，直接到<code>readSerialData()</code>里，由于这次已经有了<code>readOject()</code>方法，所以在<code>hasReadObjectMethod()</code>判断结束后，进入了if语句，反射调用了重写的<code>readObject()</code></p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910234840705.png" alt="image-20230910234840705"></p>
+<p>由于我们没有在<code>readObejct()</code>中，并没有写<code>readUTF()</code>或其他实例化语句，所以这里并没有对属性进行填充，就导致了：</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910235433620.png" alt="image-20230910235433620"></p>
+<p>这时就引出了<code>defaultReadObject()</code></p>
+<h1 id="defaultReadObject"><a href="#defaultReadObject" class="headerlink" title="defaultReadObject"></a>defaultReadObject</h1><p>defaultReadObject其实在重写的readOject方法中很多都有见过</p>
+<p>根据注解，作用主要是：从该流中读取当前类的非静态和非瞬态字段。这只能从正在反序列化的类的readObject方法调用。</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230908135654928.png" alt="image-20230908135654928"></p>
+<p>其实就是对各个字段值进行初始化，<code>defaultReadObject()</code> 主要执行以下操作：</p>
+<ol>
+<li>根据默认的规则从输入流中读取字节流，将其转换为对象的字段值。</li>
+<li>将读取到的字段值分配给相应的字段。</li>
+</ol>
+<h2 id="流程分析-1"><a href="#流程分析-1" class="headerlink" title="流程分析"></a>流程分析</h2><p> 将<code>readObject()</code>改成</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title function_">readObject</span><span class="params">(ObjectInputStream s)</span> <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line">    s.defaultReadObject();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>还是到之前反射调用<code>readOject()</code>的部分，这时执行了<code>defaultReadObject()</code></p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910235717113.png" alt="image-20230910235717113"></p>
+<p>之后执行到了<code>defaultReadFields()</code>，在上边字段填充中提到过，剩下过程就跟之前一样了</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910235817757.png" alt="image-20230910235817757"></p>
+<p>此时执行后的结果：</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910235953222.png" alt="image-20230910235953222"></p>
+<h1 id="Others"><a href="#Others" class="headerlink" title="Others"></a>Others</h1><p>在CTF中，有通过对<code>Resolve()</code>重写，进行二次反序列化的利用，如：<a href="https://github.com/waderwu/javaDeserializeLabs">javaDeserializeLabs — labs5</a>、AliyunCTF — ezbean</p>
+<p>除此外还见过一次通过<code>resolveClass</code>设置拦截点的题，做个简单记录</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">MyownObjectInputStream</span> <span class="keyword">extends</span> <span class="title class_">ObjectInputStream</span>&#123;</span><br><span class="line">    <span class="keyword">private</span> ArrayList Blacklist=<span class="keyword">new</span> <span class="title class_">ArrayList</span>();</span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">MyownObjectInputStream</span><span class="params">(InputStream in)</span> <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        <span class="built_in">super</span>(in);</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(Hashtable.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(HashSet.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(JdbcRowSetImpl.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(TreeMap.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(HotSwappableTargetSource.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(XString.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(BadAttributeValueExpException.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(TemplatesImpl.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(ToStringBean.class.getName());</span><br><span class="line">    &#125;</span><br><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="keyword">protected</span> Class&lt;?&gt; resolveClass(ObjectStreamClass desc) <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line">    <span class="keyword">if</span> (<span class="built_in">this</span>.Blacklist.contains(desc.getName())) &#123;</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">InvalidClassException</span>(<span class="string">&quot;dont do this&quot;</span>);</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="built_in">super</span>.resolveClass(desc);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+]]></content>
+      <categories>
+        <category>Java</category>
+      </categories>
+      <tags>
+        <tag>反序列化</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>fastjson 看我一命通关</title>
     <url>/2023/11/10/fastjson%E7%9C%8B%E6%88%91%E4%B8%80%E5%91%BD%E9%80%9A%E5%85%B3/</url>
     <content><![CDATA[<h1 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h1><p>​        Fastjson是一款由阿里巴巴开发的高性能、功能丰富的 JSON 处理库，用于实现Java 对象和 JSON 字符串的转换。而Fastjson组件提供的反序列化功能，允许用户通过”@type” 字段来指定任意反序列化类名，并自动调用该类的 setter 方法及部分 getter 方法，这就导致当反序列化不可信数据时便可触发远程代码执行。</p>
@@ -386,288 +481,6 @@
       </categories>
       <tags>
         <tag>Fastjson</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>defaultReadObject分析</title>
-    <url>/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/</url>
-    <content><![CDATA[<p>起因是想重新了解下反序列化，在看HashMap的readObject时，看到了defaultReadObject()，想到在重写readOject()中基本都遇到过，于是想了解下这个函数的具体作用以及实现原理。</p>
-<h1 id="readObject"><a href="#readObject" class="headerlink" title="readObject"></a>readObject</h1><p>先看下执行原生readOject()都发生了什么</p>
-<p>测试代码：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">SerializeTest</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line">        <span class="type">Animals</span> <span class="variable">animals</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Animals</span>(<span class="string">&quot;111&quot;</span>, <span class="string">&quot;222&quot;</span>, <span class="string">&quot;333&quot;</span>);</span><br><span class="line">        <span class="type">ByteArrayOutputStream</span> <span class="variable">bos</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayOutputStream</span>();</span><br><span class="line">        <span class="type">ObjectOutputStream</span> <span class="variable">oos</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectOutputStream</span>(bos);</span><br><span class="line">        oos.writeObject(animals);</span><br><span class="line">        <span class="type">byte</span>[] bytes = bos.toByteArray();</span><br><span class="line"></span><br><span class="line">        <span class="type">ByteArrayInputStream</span> <span class="variable">bis</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayInputStream</span>(bytes);</span><br><span class="line">        <span class="type">ObjectInputStream</span> <span class="variable">ois</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectInputStream</span>(bis);</span><br><span class="line">        <span class="type">Animals</span> <span class="variable">o</span> <span class="operator">=</span> (Animals)ois.readObject();</span><br><span class="line">        System.out.println(o.toString());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>Animals</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">Animals</span> <span class="keyword">implements</span> <span class="title class_">Serializable</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> String dog;</span><br><span class="line">    <span class="keyword">public</span> String cat;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">transient</span> String pet;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">Animals</span><span class="params">(String dog, String cat, String pet)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.dog = dog;</span><br><span class="line">        <span class="built_in">this</span>.cat = cat;</span><br><span class="line">        <span class="built_in">this</span>.pet = pet;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> String <span class="title function_">toString</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="string">&quot;Animals&#123;&quot;</span> +</span><br><span class="line">                <span class="string">&quot;dog=&#x27;&quot;</span> + dog + <span class="string">&#x27;\&#x27;&#x27;</span> +</span><br><span class="line">                <span class="string">&quot;, cat=&#x27;&quot;</span> + cat + <span class="string">&#x27;\&#x27;&#x27;</span> +</span><br><span class="line">                <span class="string">&quot;, pet=&#x27;&quot;</span> + pet + <span class="string">&#x27;\&#x27;&#x27;</span> +</span><br><span class="line">                <span class="string">&#x27;&#125;&#x27;</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h2 id="流程分析"><a href="#流程分析" class="headerlink" title="流程分析"></a>流程分析</h2><p>在执行<code>readOject()</code>后会执行<code>readOject0</code>，上半部分主要是快数据模式的判断，详细点说就是：在序列化和反序列化时，会采用块模式进行存储提高效率</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910223737867.png" alt="image-20230910223737867"></p>
-<p>而这里就是判断是否为该模式，是的话则检查当前块中是否还有剩余的数据，如果有的话则说明(有剩余未处理的数据),会抛出异常；如若没问题，最后就是将该模式设为false关闭掉。</p>
-<p>这个块数据模式的设置就在<code>ObjectInputStream</code>，其中<code>bin</code>的值就是该模式下的序列化数据</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="title function_">ObjectInputStream</span><span class="params">(InputStream in)</span> <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">    verifySubclass();</span><br><span class="line">    bin = <span class="keyword">new</span> <span class="title class_">BlockDataInputStream</span>(in);</span><br><span class="line">    handles = <span class="keyword">new</span> <span class="title class_">HandleTable</span>(<span class="number">10</span>);</span><br><span class="line">    vlist = <span class="keyword">new</span> <span class="title class_">ValidationList</span>();</span><br><span class="line">    enableOverride = <span class="literal">false</span>;</span><br><span class="line">    readStreamHeader();</span><br><span class="line">    bin.setBlockDataMode(<span class="literal">true</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>之后<code>tc = bin.peekByte()) == TC_RESET</code> 进行读取一个字节的数据来进行判断，经过一级级调用最后到了<code>read()</code>此时pos为4，</p>
-<blockquote>
-<p>peekByte方法，不是读取当前的字节，而是后一个字节。但是readByte方法则是读取当前所在的字节，不是后一个。这两个方法还是不一样的！</p>
-</blockquote>
-<p>所以取出的数据即：115赋值给tc（前边的-84，-19，0，5是序列化数据开头的标识信息）</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910224632288.png" alt="image-20230910224632288"></p>
-<p>switch语句找到对应115的case语句，处理对象数据，跟进下readOrdinaryObject</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">case</span> TC_OBJECT:</span><br><span class="line">    <span class="keyword">return</span> checkResolve(readOrdinaryObject(unshared));</span><br></pre></td></tr></table></figure>
-
-<p>首先判断读取一个字节数据进行判断(刚有提到readByte是读取当前字节，所以及时pos刚才自增了单读出来的还是115)，接着到了readClassDesc()读取类描述符。</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910230103059.png" alt="image-20230910230103059"></p>
-<p>这次调用的是peekByte()，所以读取下一个字节114，进入TO_CLASSDESC处理类对象 (现在等于是在TC_OBJECT 对象数据中处理TO_CLASSDESC类数据)</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910230556731.png" alt="image-20230910230556731"></p>
-<p>进入<code>readNonProxyDesc()</code>，主要分为两部<code>readClassDescriptor()</code>和<code>resolveClass()</code></p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910230950256.png" alt="image-20230910230950256"></p>
-<p>先看<code>readClassDescriptor()</code>，里边又执行了<code>readNonProxy()</code>，主要是拿到类中的两个字段——&gt;cat、dog</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910231235708.png" alt="image-20230910231235708"></p>
-<p>取出后回到<code>readNonProxyDesc()</code>，将<code>readClassDescriptor()</code>获取到的类及其字段返回给readDesc属性，通过<code>resolveClass()</code>默认类加载器加载了readDesc指定名称的类即Animals，并触发类的初始化</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">protected</span> Class&lt;?&gt; resolveClass(ObjectStreamClass desc)</span><br><span class="line">    <span class="keyword">throws</span> IOException, ClassNotFoundException</span><br><span class="line">&#123;</span><br><span class="line">    <span class="type">String</span> <span class="variable">name</span> <span class="operator">=</span> desc.getName();</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> Class.forName(name, <span class="literal">false</span>, latestUserDefinedLoader());</span><br><span class="line">    &#125; <span class="keyword">catch</span> (ClassNotFoundException ex) &#123;</span><br><span class="line">        Class&lt;?&gt; cl = primClasses.get(name);</span><br><span class="line">        <span class="keyword">if</span> (cl != <span class="literal">null</span>) &#123;</span><br><span class="line">            <span class="keyword">return</span> cl;</span><br><span class="line">        &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">            <span class="keyword">throw</span> ex;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>接着回到<code>readOrdinaryObject()</code>，将刚才加载的类赋值给desc，并判断其是否可以进行反序列化，接着通过forClass拿到目标class对象</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910231704288.png" alt="image-20230910231704288"></p>
-<p>下边执行<code>isInstantiable()</code>判断其是否可以进行实例化，之后实例化了desc，这时obj就成为了真正的<code>Animals</code>对象。(这里有个单例问题后边再说)</p>
-<p>Animals实例创建好之后，还需要对其中的每个字段进行填充，相关操作体现在readSerialData方法中</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910232845616.png" alt="image-20230910232845616"></p>
-<p><code>readSerialData</code>方法有两种情况：</p>
-<p>这个方法首先会对通过<code>hasReadObjectMethod()</code>对传入的对应描述符对象进行判断，看其是否存在<code>readObjectMethod</code>属性，存在就通过反射调用</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910233216207.png" alt="image-20230910233216207"></p>
-<p>而我们在Animals类中并没有重写<code>readOject()</code>，所以走到了下边else中的<code>defaultReadFields()</code></p>
-<p>其中通过反序列化读取到各字段的值，并反射对其进行填充，此刻obj对象实例，已经有了对应的字段和值</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910233647638.png" alt="image-20230910233647638"></p>
-<h3 id="单例问题"><a href="#单例问题" class="headerlink" title="单例问题"></a>单例问题</h3><p>走出<code>readSerialData()</code>后，就到了下边的<code>hasReadResolveMethod</code>()，判断是否有<code>ReadResolve</code>方法</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910233905584.png" alt="image-20230910233905584"></p>
-<p>而这个方法其实就是为了解决单例问题的，在前边有这么一段代码，当调用newInstance()进行实例化后，此时JVM会为其创建一个新的实例对象，这种做法会破坏单例模式。 </p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">try</span> &#123;</span><br><span class="line">    obj = desc.isInstantiable() ? desc.newInstance() : <span class="literal">null</span>;</span><br><span class="line">&#125; <span class="keyword">catch</span> (Exception ex) &#123;</span><br></pre></td></tr></table></figure>
-
-<p>所以可以用<code>readResolve()</code>解决这个问题</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">private</span> Object <span class="title function_">readResolve</span><span class="params">()</span> &#123;</span><br><span class="line"> <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">Animals</span>();   </span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>当然这个对当前反序列化没有影响，所以了解下即可，可参考：<a href="https://zhuanlan.zhihu.com/p/136769959">单例、序列化和readResolve()方法 - 知乎 (zhihu.com)</a></p>
-<h1 id="重写readObejct"><a href="#重写readObejct" class="headerlink" title="重写readObejct"></a>重写readObejct</h1><p>在上边提到<code>readSerialData()</code>有两种情况，分别是调用<code>readObject()</code>和<code>defaultReadFields()</code>填充字段，所以这里看下重写<code>readOject()</code>后会怎样</p>
-<p>在Animals类中加上：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title function_">readObject</span><span class="params">(ObjectInputStream s)</span> <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>前边都是一样的所以就不看了，直接到<code>readSerialData()</code>里，由于这次已经有了<code>readOject()</code>方法，所以在<code>hasReadObjectMethod()</code>判断结束后，进入了if语句，反射调用了重写的<code>readObject()</code></p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910234840705.png" alt="image-20230910234840705"></p>
-<p>由于我们没有在<code>readObejct()</code>中，并没有写<code>readUTF()</code>或其他实例化语句，所以这里并没有对属性进行填充，就导致了：</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910235433620.png" alt="image-20230910235433620"></p>
-<p>这时就引出了<code>defaultReadObject()</code></p>
-<h1 id="defaultReadObject"><a href="#defaultReadObject" class="headerlink" title="defaultReadObject"></a>defaultReadObject</h1><p>defaultReadObject其实在重写的readOject方法中很多都有见过</p>
-<p>根据注解，作用主要是：从该流中读取当前类的非静态和非瞬态字段。这只能从正在反序列化的类的readObject方法调用。</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230908135654928.png" alt="image-20230908135654928"></p>
-<p>其实就是对各个字段值进行初始化，<code>defaultReadObject()</code> 主要执行以下操作：</p>
-<ol>
-<li>根据默认的规则从输入流中读取字节流，将其转换为对象的字段值。</li>
-<li>将读取到的字段值分配给相应的字段。</li>
-</ol>
-<h2 id="流程分析-1"><a href="#流程分析-1" class="headerlink" title="流程分析"></a>流程分析</h2><p> 将<code>readObject()</code>改成</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title function_">readObject</span><span class="params">(ObjectInputStream s)</span> <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line">    s.defaultReadObject();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>还是到之前反射调用<code>readOject()</code>的部分，这时执行了<code>defaultReadObject()</code></p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910235717113.png" alt="image-20230910235717113"></p>
-<p>之后执行到了<code>defaultReadFields()</code>，在上边字段填充中提到过，剩下过程就跟之前一样了</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910235817757.png" alt="image-20230910235817757"></p>
-<p>此时执行后的结果：</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910235953222.png" alt="image-20230910235953222"></p>
-<h1 id="Others"><a href="#Others" class="headerlink" title="Others"></a>Others</h1><p>在CTF中，有通过对<code>Resolve()</code>重写，进行二次反序列化的利用，如：<a href="https://github.com/waderwu/javaDeserializeLabs">javaDeserializeLabs — labs5</a>、AliyunCTF — ezbean</p>
-<p>除此外还见过一次通过<code>resolveClass</code>设置拦截点的题，做个简单记录</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">MyownObjectInputStream</span> <span class="keyword">extends</span> <span class="title class_">ObjectInputStream</span>&#123;</span><br><span class="line">    <span class="keyword">private</span> ArrayList Blacklist=<span class="keyword">new</span> <span class="title class_">ArrayList</span>();</span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">MyownObjectInputStream</span><span class="params">(InputStream in)</span> <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        <span class="built_in">super</span>(in);</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(Hashtable.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(HashSet.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(JdbcRowSetImpl.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(TreeMap.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(HotSwappableTargetSource.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(XString.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(BadAttributeValueExpException.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(TemplatesImpl.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(ToStringBean.class.getName());</span><br><span class="line">    &#125;</span><br><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="keyword">protected</span> Class&lt;?&gt; resolveClass(ObjectStreamClass desc) <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line">    <span class="keyword">if</span> (<span class="built_in">this</span>.Blacklist.contains(desc.getName())) &#123;</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">InvalidClassException</span>(<span class="string">&quot;dont do this&quot;</span>);</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="built_in">super</span>.resolveClass(desc);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-]]></content>
-      <categories>
-        <category>Java</category>
-      </categories>
-      <tags>
-        <tag>反序列化</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>浅谈JS逆向</title>
-    <url>/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/</url>
-    <content><![CDATA[<p>回到工作一周了，闲暇之余了解了下JS逆向。</p>
-<h1 id="JS基础"><a href="#JS基础" class="headerlink" title="JS基础"></a>JS基础</h1><h2 id="变量声明"><a href="#变量声明" class="headerlink" title="变量声明"></a>变量声明</h2><p>在JS中，可以通过var关键字来声明变量</p>
-<figure class="highlight js"><table><tr><td class="code"><pre><span class="line"><span class="keyword">var</span> name;</span><br><span class="line">或</span><br><span class="line">name = <span class="string">&quot;S1nJa&quot;</span></span><br></pre></td></tr></table></figure>
-
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240604144507425.png" alt="image-20240604144507425"></p>
-<p>也可以一次定义多个变量</p>
-<figure class="highlight js"><table><tr><td class="code"><pre><span class="line"><span class="keyword">var</span> name = <span class="string">&quot;S1nJa&quot;</span>,age=<span class="number">18</span></span><br></pre></td></tr></table></figure>
-
-<h2 id="函数"><a href="#函数" class="headerlink" title="函数"></a>函数</h2><figure class="highlight js"><table><tr><td class="code"><pre><span class="line"><span class="keyword">function</span> <span class="title function_">add</span>(<span class="params">a,b</span>)&#123;</span><br><span class="line">    c = a+b</span><br><span class="line">    <span class="keyword">return</span> c</span><br><span class="line">&#125;</span><br><span class="line"><span class="title function_">add</span>(<span class="number">1</span>,<span class="number">1</span>) </span><br></pre></td></tr></table></figure>
-
-
-
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240604163744516.png" alt="image-20240604163744516"></p>
-<h3 id="常用函数"><a href="#常用函数" class="headerlink" title="常用函数"></a>常用函数</h3><p><strong>length</strong></p>
-<p>返回字符串的长度。</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240604145252903.png" alt="image-20240604145252903"></p>
-<p><strong>indexOf</strong></p>
-<p>用于查找指定字符串在另一个字符串中第一次出现的位置。</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240604145555752.png" alt="image-20240604145555752"></p>
-<p><strong>slice</strong></p>
-<p>slice(start, end)</p>
-<p>从一个字符串中返回指定起始索引和结束索引之间的子串</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240604150131539.png" alt="image-20240604150131539"></p>
-<p><strong>substring</strong></p>
-<p>substring(start, end)</p>
-<p>substring方法类似于slice，不同的是substring方法无法接受负数索引。</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240604150259698.png" alt="image-20240604150259698"></p>
-<p><strong>substr</strong></p>
-<p>substr(start, length)</p>
-<p>substr的第二个形参接受的不是结束为止，而是截取长度</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240604150455836.png" alt="image-20240604150455836"></p>
-<p><strong>replace</strong></p>
-<p>用于字符串替换</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240604150621528.png" alt="image-20240604150621528"></p>
-<p><strong>concat</strong></p>
-<p>用于字符串拼接</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240604151259264.png" alt="image-20240604151259264"></p>
-<p><strong>push</strong></p>
-<p>向数组中添加元素</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240604151929792.png" alt="image-20240604151929792"></p>
-<p><strong>join</strong></p>
-<p>将所有元素合并为一个字符串</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240604152329910.png" alt="image-20240604152329910"></p>
-<p><strong>toUpperCase()</strong> 用于将字符串转为大写</p>
-<p><strong>toLowerCase()</strong> 用于将字符串转为小写</p>
-<p><strong>trim()</strong> 删除字符串两端的空白符，同Python中的strip()一样的功能。</p>
-<p><strong>charAt()</strong> 方法返回字符串中指定下标（位置）的字符串</p>
-<p><strong>split()</strong> 分割字符串</p>
-<p><strong>pop()</strong> 从数组中删除最后一个元素</p>
-<p><strong>push()</strong> 向数组结尾处添加新的元素</p>
-<p><strong>shift()</strong> 删除数组最后一个元素</p>
-<p><strong>unshift（）</strong> 向数组开头处添加元素</p>
-<p><strong>sort()</strong> 对数组进行排序（按照数字大小或者字母顺序）</p>
-<p><strong>reverse()</strong> 反转数组中的元素。</p>
-<h2 id="条件运算"><a href="#条件运算" class="headerlink" title="条件运算"></a>条件运算</h2><figure class="highlight js"><table><tr><td class="code"><pre><span class="line"><span class="keyword">if</span> (condition)&#123;</span><br><span class="line">    语句</span><br><span class="line">&#125;</span><br><span class="line">...................</span><br><span class="line"><span class="keyword">if</span> (condition)&#123;</span><br><span class="line">	语句</span><br><span class="line">&#125;<span class="keyword">else</span>&#123;</span><br><span class="line">	语句</span><br><span class="line">&#125;</span><br><span class="line">...................</span><br><span class="line"><span class="keyword">if</span> (condition1)&#123;</span><br><span class="line">    语句</span><br><span class="line">&#125;<span class="keyword">else</span> <span class="keyword">if</span> (condition2)&#123;</span><br><span class="line">    语句</span><br><span class="line">&#125;<span class="keyword">else</span>&#123;</span><br><span class="line">  语句</span><br><span class="line">&#125;</span><br><span class="line">...................</span><br><span class="line"><span class="keyword">switch</span>(n)</span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">case</span> <span class="number">1</span>:</span><br><span class="line">        代码块 <span class="number">1</span></span><br><span class="line">        <span class="keyword">break</span>;</span><br><span class="line">    <span class="keyword">case</span> <span class="number">2</span>:</span><br><span class="line">        代码块 <span class="number">2</span></span><br><span class="line">        <span class="keyword">break</span>;</span><br><span class="line">    <span class="attr">default</span>:</span><br><span class="line">        代码块<span class="number">3</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240604154230394.png" alt="image-20240604154230394"></p>
-<h2 id="循环语句"><a href="#循环语句" class="headerlink" title="循环语句"></a>循环语句</h2><figure class="highlight js"><table><tr><td class="code"><pre><span class="line"><span class="keyword">for</span> (语句 <span class="number">1</span>; 语句 <span class="number">2</span>; 语句 <span class="number">3</span>)&#123;</span><br><span class="line">    语句</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">while</span> (condition)&#123;</span><br><span class="line">    语句</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">do</span>&#123;</span><br><span class="line">    语句</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">while</span> (condition);</span><br></pre></td></tr></table></figure>
-
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240604163302254.png" alt="image-20240604163302254"></p>
-<h1 id="JS调试"><a href="#JS调试" class="headerlink" title="JS调试"></a>JS调试</h1><p>在JavaScript中，断点调试是一种常用的调试技术，它允许开发者在代码的特定位置暂停执行，以便检查和分析程序的状态。</p>
-<p>当发现可疑函数时，可以通过在断点处暂停，查看和修改变量的当前值，观察每一步数值的变化。</p>
-<p>当打下断点后，重新请求页面便会进入调试模式</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240604170155096.png" alt="image-20240604170155096"></p>
-<p>主要分为以下功能：</p>
-<p>①逐过程执行：常用存在多个断点，需要在多断点间进行调试使用</p>
-<p>②逐语句执行：步过，遇到自定义函数也当成一个语句执行，而不会进入函数内部</p>
-<p>③：与①一致</p>
-<p>④：与②一致</p>
-<p>⑤步入：遇到自定义函数就跟入到函数内部步出，跳出当前自定义函数</p>
-<p>⑥步出：跳出当前自定义函数</p>
-<p>除此外右侧部分可以查看作用域(变量的内容)和当前的调用栈等信息</p>
-<h1 id="加密方法定位"><a href="#加密方法定位" class="headerlink" title="加密方法定位"></a>加密方法定位</h1><p>定位的方式有很多如提交表单时存在onClick寻找加密函数，Event Listeners定位，全局搜索等，就不一一介绍了，主要看下JS函数检测辅助工具</p>
-<h2 id="v-jstools"><a href="#v-jstools" class="headerlink" title="v_jstools"></a>v_jstools</h2><h3 id="安装"><a href="#安装" class="headerlink" title="安装"></a>安装</h3><p>下载解压后直接添加扩展即可</p>
-<p><a href="https://github.com/cilame/v_jstools">GitHub - cilame&#x2F;v_jstools: 模仿着写一个 chrome 插件，用来快速调试前端 js 代码。</a></p>
-<p>打开hook开关，根据需求进行配置即可<br><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240604172505063.png" alt="image-20240604172505063"></p>
-<h3 id="使用"><a href="#使用" class="headerlink" title="使用"></a>使用</h3><p>这里使用的是师傅编写的JS逆向练习靶场，<a href="https://github.com/0ctDay/encrypt-decrypt-vuls/">https://github.com/0ctDay/encrypt-decrypt-vuls/</a></p>
-<p>开启后重新发送请求，控制台会提示inject start！即开启成功</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240604172915924.png" alt="image-20240604172915924"></p>
-<p>1、此时发送请求，即可对我们设置的功能点进行hook，找到了明文请求的点并返回hook的位置</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240606160454969.png" alt="image-20240606160454969"></p>
-<p>2、在hook点打断点调试，寻找将数据进行加密的函数</p>
-<p>n即为原始的明文数据，当调试到<code>t.data = l(n);</code>，发现经过l()函数，t.data的值发生了改变，并且对应的值就是我们传入数据加密后的值，因此l()函数一定就是要找的加密函数</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240606161046475.png" alt="image-20240606161046475"></p>
-<p>3、跟进l()函数，t为传入的明文数据，f为秘钥，h为偏移量</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240606162647170.png" alt="image-20240606162647170"></p>
-<p>4、同时在调用l()前，发现了requestID、时间戳、签名</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240606162943107.png" alt="image-20240606162943107"></p>
-<h1 id="修改数据包"><a href="#修改数据包" class="headerlink" title="修改数据包"></a>修改数据包</h1><p>定位到加密函数后，就要着手修改数据包了</p>
-<h2 id="JS-RPC"><a href="#JS-RPC" class="headerlink" title="JS-RPC"></a>JS-RPC</h2><p><a href="https://github.com/jxhczhl/JsRpc">https://github.com/jxhczhl/JsRpc</a></p>
-<p>JS-RPC是一款远程调用浏览器方法的工具，通过websocket与本地python服务端相连。当python中想要执行代码时，只需要通过RPC即可调用控制台中的函数，不需要再本地还原。</p>
-<h3 id="使用-1"><a href="#使用-1" class="headerlink" title="使用"></a>使用</h3><p><a href="https://github.com/jxhczhl/JsRpc/blob/main/README.md">JsRpc&#x2F;README.md at main · jxhczhl&#x2F;JsRpc · GitHub</a></p>
-<p>1、打开客户端，将JSRPC项目中的JsEnv.js中的代码复制到控制台中</p>
-<p>2、输入<code>var demo = new Hlclient(&quot;ws://127.0.0.1:12080/ws?group=S1nJa&quot;);</code>建立连接</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240607153318725.png" alt="image-20240607153318725"></p>
-<p>3、经过刚才的调试我们已经知道了<code>l()</code>函数即为加密函数，那便可打断点记录该函数进行调用</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240607155424020.png" alt="image-20240607155424020"></p>
-<p>4、将其注册到JSRPC</p>
-<figure class="highlight js"><table><tr><td class="code"><pre><span class="line">demo.<span class="title function_">regAction</span>(<span class="string">&quot;enc&quot;</span>, <span class="keyword">function</span> (<span class="params">resolve, param</span>) &#123;</span><br><span class="line">    <span class="keyword">var</span> res = <span class="title function_">enc</span>(<span class="title class_">String</span>(param));</span><br><span class="line">    <span class="title function_">resolve</span>(res);</span><br><span class="line">&#125;)</span><br></pre></td></tr></table></figure>
-
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240611142904866.png" alt="image-20240611142904866"></p>
-<p>5、注册完成后即可进行本地调用了</p>
-<figure class="highlight shell"><table><tr><td class="code"><pre><span class="line">http://127.0.0.1:12080/go?group=S1nJa&amp;action=enc&amp;param=test</span><br></pre></td></tr></table></figure>
-
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240611143019756.png" alt="image-20240611143019756"></p>
-<p>6、解密函数同理，通过调试发现解密函数为d()，直接记录注册</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240611162553743.png" alt="image-20240611162553743"></p>
-<h2 id="JS-RPC-MITM"><a href="#JS-RPC-MITM" class="headerlink" title="JS-RPC+MITM"></a>JS-RPC+MITM</h2><p><a href="https://mitmproxy.org/">mitmproxy - an interactive HTTPS proxy</a></p>
-<p>mitmproxy作为一款代理工具，可以通过python对请求进行拦截，篡改，从而达到hook的目的</p>
-<p>经过前边的分析可知，我们的每次请求都包含以下参数</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240611163136081.png" alt="image-20240611163136081"></p>
-<ul>
-<li>r：时间戳</li>
-<li>n：Json格式的原始数据</li>
-<li>i：requestId</li>
-<li>s：签名信息</li>
-<li>l：加密函数</li>
-<li>d：解密函数</li>
-</ul>
-<p>所以如果想要构造请求，就需要获取到以上参数，这里对明文请求进行加密,密文回显解密为例</p>
-<h3 id="JS-RPC-1"><a href="#JS-RPC-1" class="headerlink" title="JS-RPC"></a>JS-RPC</h3><p>首先还是注册JS-RPC，对每个参数进行记录注册：</p>
-<p>记录：</p>
-<figure class="highlight js"><table><tr><td class="code"><pre><span class="line"><span class="comment">//时间戳</span></span><br><span class="line"><span class="variable language_">window</span>.<span class="property">time</span> = <span class="title class_">Date</span>.<span class="property">parse</span></span><br><span class="line"><span class="comment">//requestId</span></span><br><span class="line"><span class="variable language_">window</span>.<span class="property">id</span> = p</span><br><span class="line"><span class="comment">//v函数</span></span><br><span class="line"><span class="variable language_">window</span>.<span class="property">v1</span> = v</span><br><span class="line"><span class="comment">//签名</span></span><br><span class="line"><span class="variable language_">window</span>.<span class="property">m</span> = a.<span class="property">a</span>.<span class="property">MD5</span></span><br><span class="line"><span class="comment">//加密函数</span></span><br><span class="line"><span class="variable language_">window</span>.<span class="property">enc</span> = l</span><br><span class="line"><span class="comment">//解密函数</span></span><br><span class="line"><span class="variable language_">window</span>.<span class="property">dec</span> = d</span><br></pre></td></tr></table></figure>
-
-<p>注册：</p>
-<figure class="highlight js"><table><tr><td class="code"><pre><span class="line">demo.<span class="title function_">regAction</span>(<span class="string">&quot;req&quot;</span>, <span class="keyword">function</span> (<span class="params">resolve,param</span>) &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">let</span> timestamp = <span class="title function_">time</span>(<span class="keyword">new</span> <span class="title class_">Date</span>());</span><br><span class="line">    <span class="keyword">let</span> requestid = <span class="title function_">id</span>();</span><br><span class="line">    <span class="keyword">let</span> v_data = <span class="title class_">JSON</span>.<span class="title function_">stringify</span>(<span class="title function_">v1</span>(param));</span><br><span class="line">    <span class="keyword">let</span> sign = <span class="title function_">m</span>(v_data + requestid + timestamp).<span class="title function_">toString</span>();</span><br><span class="line">	</span><br><span class="line">    <span class="keyword">let</span> encstr = <span class="title function_">enc</span>(v_data);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">let</span> res = &#123;</span><br><span class="line">        <span class="string">&quot;timestamp&quot;</span>:timestamp,</span><br><span class="line">        <span class="string">&quot;requestid&quot;</span>:requestid,</span><br><span class="line">        <span class="string">&quot;encstr&quot;</span>:encstr,</span><br><span class="line">        <span class="string">&quot;sign&quot;</span>:sign</span><br><span class="line">    &#125;;</span><br><span class="line">    <span class="title function_">resolve</span>(res);</span><br><span class="line">&#125;)</span><br></pre></td></tr></table></figure>
-
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240611163956481.png" alt="image-20240611163956481"></p>
-<p>注册dec</p>
-<figure class="highlight js"><table><tr><td class="code"><pre><span class="line">demo.<span class="title function_">regAction</span>(<span class="string">&quot;dec&quot;</span>, <span class="keyword">function</span> (<span class="params">resolve, param</span>) &#123;</span><br><span class="line">    <span class="keyword">var</span> res = <span class="title function_">dec</span>(<span class="title class_">String</span>(param));</span><br><span class="line">    <span class="title function_">resolve</span>(res);</span><br><span class="line">&#125;)</span><br><span class="line">#测试</span><br><span class="line"><span class="attr">http</span>:<span class="comment">//127.0.0.1:12080/go?group=S1nJa&amp;action=dec&amp;param=wyJy7dTITM1EBaQzVmT%2Blw==</span></span><br></pre></td></tr></table></figure>
-
-<p>测试</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240611164254993.png" alt="image-20240611164254993"></p>
-<h3 id="MITM"><a href="#MITM" class="headerlink" title="MITM"></a>MITM</h3><p>现在通过JS-RPC已经可以获取到，时间戳、requestid、sign、加解密内容，之后就可以通过Mitmproxy对请求响应进行hook了</p>
-<figure class="highlight python"><table><tr><td class="code"><pre><span class="line"><span class="keyword">import</span> json</span><br><span class="line"><span class="keyword">from</span> mitmproxy <span class="keyword">import</span> http</span><br><span class="line"><span class="keyword">import</span> requests</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">getHeader</span>(<span class="params">method,body</span>):</span><br><span class="line">    data = &#123;<span class="string">&quot;group&quot;</span>: <span class="string">&quot;S1nJa&quot;</span>, <span class="string">&quot;action&quot;</span>: method, <span class="string">&quot;param&quot;</span>: body&#125;</span><br><span class="line">    res = requests.post(<span class="string">&quot;http://127.0.0.1:12080/go&quot;</span>, data=data)</span><br><span class="line">    res_json = json.loads(res.text)[<span class="string">&quot;data&quot;</span>]</span><br><span class="line">    <span class="keyword">return</span> res_json</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">request</span>(<span class="params">flow: http.HTTPFlow</span>) -&gt; <span class="literal">None</span>:</span><br><span class="line">    <span class="keyword">if</span> flow.request.pretty_url.startswith(<span class="string">&quot;http://127.0.0.1:8085/api/&quot;</span>):</span><br><span class="line">        <span class="comment"># 获取原始请求</span></span><br><span class="line">        original_body = flow.request.content.decode(<span class="string">&#x27;utf-8&#x27;</span>)</span><br><span class="line">        res_json = getHeader(<span class="string">&quot;req&quot;</span>,original_body)</span><br><span class="line">        data_json = json.loads(res_json)</span><br><span class="line"></span><br><span class="line">        <span class="comment"># 获取生成的请求信息</span></span><br><span class="line">        encrypted_body = data_json[<span class="string">&quot;encstr&quot;</span>]</span><br><span class="line">        request_id = data_json[<span class="string">&quot;requestid&quot;</span>]</span><br><span class="line">        timestamp = data_json[<span class="string">&quot;timestamp&quot;</span>]</span><br><span class="line">        sign = data_json[<span class="string">&quot;sign&quot;</span>]</span><br><span class="line"></span><br><span class="line">        <span class="comment"># 添加或替换数据</span></span><br><span class="line">        flow.request.text = encrypted_body</span><br><span class="line">        flow.request.headers[<span class="string">&quot;requestId&quot;</span>] = request_id</span><br><span class="line">        flow.request.headers[<span class="string">&quot;timestamp&quot;</span>] = <span class="built_in">str</span>(timestamp)</span><br><span class="line">        flow.request.headers[<span class="string">&quot;sign&quot;</span>] = sign</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">response</span>(<span class="params">flow: http.HTTPFlow</span>) -&gt; <span class="literal">None</span>:</span><br><span class="line">    content_type = flow.response.headers.get(<span class="string">&quot;Content-Type&quot;</span>, <span class="string">&quot;&quot;</span>)</span><br><span class="line">    <span class="keyword">if</span> <span class="string">&quot;application/json&quot;</span> <span class="keyword">in</span> content_type:</span><br><span class="line">        <span class="comment"># 获取响应体</span></span><br><span class="line">        response_body = flow.response.get_text()</span><br><span class="line">        res = getHeader(<span class="string">&quot;dec&quot;</span>,response_body)</span><br><span class="line">        flow.response.set_text(res)</span><br></pre></td></tr></table></figure>
-
-<p>运行mitmproxy</p>
-<figure class="highlight shell"><table><tr><td class="code"><pre><span class="line">mitmproxy -p 8083 -s mit.py</span><br></pre></td></tr></table></figure>
-
-<p>将8083端口设为burp的上游代理</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240611173126996.png" alt="image-20240611173126996"></p>
-<p>此时明文发包，可以看到数据会经过mitm加密处理，返回包也为明文数据</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240611173552205.png" alt="image-20240611173552205"></p>
-<h2 id="JS-RPC-autoDecoder"><a href="#JS-RPC-autoDecoder" class="headerlink" title="JS-RPC+autoDecoder"></a>JS-RPC+autoDecoder</h2><p><a href="https://github.com/f0ng/autoDecoder">GitHub - f0ng&#x2F;autoDecoder: Burp插件</a></p>
-<p>autoDecoder是f0ng师傅编写的一款Burp插件，同样可以与JS-RPC进行联动，达到hook的目的</p>
-<p>插件中自带了一些常规的加密方式如aes、des、RSA、国密等</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240612095129011.png" alt="image-20240612095129011"></p>
-<p>特殊加密方式可以通过修改项目中的flasktest.py与JS-RPC进行联动</p>
-<h3 id="autoDecoder"><a href="#autoDecoder" class="headerlink" title="autoDecoder"></a>autoDecoder</h3><p>JS-RPC注册跟MITM中方式一样，加密部分由于需要替换请求头时间戳、requestid、sign还未实现，暂贴解密部分代码</p>
-<figure class="highlight python"><table><tr><td class="code"><pre><span class="line"><span class="keyword">from</span> flask <span class="keyword">import</span> Flask, Response, request</span><br><span class="line"><span class="keyword">import</span> requests</span><br><span class="line"><span class="keyword">import</span> json</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">getHeader</span>(<span class="params">method, body</span>):</span><br><span class="line">    data = &#123;<span class="string">&quot;group&quot;</span>: <span class="string">&quot;S1nJa&quot;</span>, <span class="string">&quot;action&quot;</span>: method, <span class="string">&quot;param&quot;</span>: body&#125;</span><br><span class="line">    res = requests.post(<span class="string">&quot;http://127.0.0.1:12080/go&quot;</span>, data=data)</span><br><span class="line">    res_json = json.loads(res.text)[<span class="string">&quot;data&quot;</span>]</span><br><span class="line">    <span class="keyword">return</span> res_json</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">app = Flask(__name__)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="meta">@app.route(<span class="params"><span class="string">&#x27;/decode&#x27;</span>, methods=[<span class="string">&quot;POST&quot;</span>]</span>)</span></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">decrypt</span>():</span><br><span class="line">    param = request.form.get(<span class="string">&#x27;dataBody&#x27;</span>)  <span class="comment"># 获取 post 参数</span></span><br><span class="line">    param_headers = request.form.get(<span class="string">&#x27;dataHeaders&#x27;</span>)  <span class="comment"># 获取 post 参数</span></span><br><span class="line">    param_requestorresponse = request.form.get(<span class="string">&#x27;requestorresponse&#x27;</span>)  <span class="comment"># 获取 post 参数</span></span><br><span class="line"></span><br><span class="line">    res = getHeader(<span class="string">&quot;dec&quot;</span>, param)</span><br><span class="line">    <span class="built_in">print</span>(param)</span><br><span class="line">    <span class="keyword">if</span> param_requestorresponse == <span class="string">&quot;request&quot;</span>:</span><br><span class="line">        <span class="keyword">return</span> param_headers + <span class="string">&quot;\r\n\r\n\r\n\r\n&quot;</span> + param</span><br><span class="line">    <span class="keyword">else</span>:</span><br><span class="line">        <span class="keyword">return</span> res</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> __name__ == <span class="string">&#x27;__main__&#x27;</span>:</span><br><span class="line">    app.debug = <span class="literal">True</span>  </span><br><span class="line">    app.run(host=<span class="string">&quot;0.0.0.0&quot;</span>, port=<span class="string">&quot;8888&quot;</span>)</span><br></pre></td></tr></table></figure>
-
-<p>测试调试</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240612144953869.png" alt="image-20240612144953869"></p>
-<p>成功后，便可抓包选择加密部分右键选择autodecoder-&gt;Decode-Autodecoder进行解密</p>
-<h2 id="JS-PRC-YAKIT"><a href="#JS-PRC-YAKIT" class="headerlink" title="JS-PRC+YAKIT"></a>JS-PRC+YAKIT</h2><p>在前边MITM方式中，使用的是mitmproxy自带库，对原始http请求进行拦截修改，而yakit中拥有热加载功能，此功能中有两个魔方方法<code>beforeRequest</code>和<code>afterRequest</code>，他们分别可以在发送数据包前和对每一个请求的响应再做一次处理</p>
-<p>而yakit的官方[poc库](<a href="https://www.yaklang.com/docs/api/poc">poc | Yak Program Language (yaklang.com)</a>)，可以对HTTP请求进行处理，这样结合<code>beforeRequest</code>和<code>afterRequest</code>便可对请求响应进行hook</p>
-<p>JS-RPC跟前边一致</p>
-<h3 id="热加载加解密"><a href="#热加载加解密" class="headerlink" title="热加载加解密"></a>热加载加解密</h3><p>热加载代码：</p>
-<figure class="highlight go"><table><tr><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">getHeader</span><span class="params">(method,body)</span></span>&#123;</span><br><span class="line">    res,rep,err = poc.Post(<span class="string">&quot;http://127.0.0.1:12080/go&quot;</span>,poc.replaceBody(<span class="string">&quot;group=S1nJa&amp;action=&quot;</span>+method+<span class="string">&quot;&amp;param=&quot;</span>+body, <span class="literal">false</span>),poc.appendHeader(<span class="string">&quot;content-type&quot;</span>, <span class="string">&quot;application/x-www-form-urlencoded&quot;</span>))</span><br><span class="line">    <span class="keyword">if</span>(err)&#123;</span><br><span class="line">        <span class="keyword">return</span>(err)</span><br><span class="line">    &#125;</span><br><span class="line">    res_json = json.loads(res.GetBody())[<span class="string">&quot;data&quot;</span>]</span><br><span class="line">    <span class="keyword">return</span> res_json</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment">// beforeRequest 允许发送数据包前再做一次处理，定义为 func(origin []byte) []byte</span></span><br><span class="line">beforeRequest = <span class="function"><span class="keyword">func</span><span class="params">(req)</span></span> &#123;</span><br><span class="line">    <span class="comment">//获取请求体</span></span><br><span class="line">    original_body = poc.GetHTTPPacketBody(req)</span><br><span class="line">    <span class="comment">//加密</span></span><br><span class="line">    res = getHeader(<span class="string">&quot;req&quot;</span>,<span class="type">string</span>(original_body))</span><br><span class="line">    <span class="comment">//获取其他的参数</span></span><br><span class="line">    res = json.loads(res)</span><br><span class="line"></span><br><span class="line">    <span class="comment">//修改其他的请求头</span></span><br><span class="line">    req = poc.ReplaceHTTPPacketHeader(req, <span class="string">&quot;requestId&quot;</span>, res[<span class="string">&quot;requestid&quot;</span>])</span><br><span class="line">    req = poc.ReplaceHTTPPacketHeader(req, <span class="string">&quot;timestamp&quot;</span>, res[<span class="string">&quot;timestamp&quot;</span>])</span><br><span class="line">    req = poc.ReplaceHTTPPacketHeader(req, <span class="string">&quot;sign&quot;</span>, res[<span class="string">&quot;sign&quot;</span>])</span><br><span class="line"></span><br><span class="line">    <span class="comment">//修改请求体</span></span><br><span class="line">    req = poc.ReplaceHTTPPacketBody(req, res[<span class="string">&quot;encstr&quot;</span>])</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> []<span class="type">byte</span>(req)</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// afterRequest 允许对每一个请求的响应做处理，定义为 func(origin []byte) []byte</span></span><br><span class="line">afterRequest = <span class="function"><span class="keyword">func</span><span class="params">(rsp)</span></span> &#123;</span><br><span class="line">    hd,body = poc.Split(rsp)</span><br><span class="line">    rss = getHeader(<span class="string">&quot;dec&quot;</span>,codec.EncodeUrl(<span class="type">string</span>(body)))</span><br><span class="line">    rsp = poc.ReplaceHTTPPacketBody(rsp,rss)</span><br><span class="line">    <span class="keyword">return</span> []<span class="type">byte</span>(rsp)</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// mirrorHTTPFlow 允许对每一个请求的响应做处理，定义为 func(req []byte, rsp []byte, params map[string]any) map[string]any</span></span><br><span class="line"><span class="comment">// 返回值回作为下一个请求的参数，或者提取的数据，如果你需要解密响应内容，在这里操作是最合适的</span></span><br><span class="line">mirrorHTTPFlow = <span class="function"><span class="keyword">func</span><span class="params">(req, rsp, params)</span></span> &#123;</span><br><span class="line">    <span class="keyword">return</span> params</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
-
-<p>通过热加载，成功将明文数据加密并发送请求进行fuzz，响应体通过解密返回明文数据</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240612185819439.png" alt="image-20240612185819439"></p>
-<h3 id="添加插件解密"><a href="#添加插件解密" class="headerlink" title="添加插件解密"></a>添加插件解密</h3><p>先注册解密函数</p>
-<figure class="highlight js"><table><tr><td class="code"><pre><span class="line"><span class="variable language_">window</span>.<span class="property">dec</span> = d</span><br><span class="line">demo.<span class="title function_">regAction</span>(<span class="string">&quot;dec&quot;</span>, <span class="keyword">function</span> (<span class="params">resolve, param</span>) &#123;</span><br><span class="line">    <span class="keyword">var</span> res = <span class="title function_">dec</span>(<span class="title class_">String</span>(param));</span><br><span class="line">    <span class="title function_">resolve</span>(res);</span><br><span class="line">&#125;)</span><br></pre></td></tr></table></figure>
-
-<p>新建插件(插件—&gt;本地—&gt;新建插件)</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240613094017966.png" alt="image-20240613094017966"></p>
-<p>选择Yak-codec</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240613094228717.png" alt="image-20240613094228717"></p>
-<p>源码</p>
-<figure class="highlight js"><table><tr><td class="code"><pre><span class="line">handle = <span class="title function_">func</span>(<span class="params">origin <span class="comment">/*string*/</span></span>) &#123;</span><br><span class="line">    group = <span class="string">&quot;S1nJa&quot;</span>;</span><br><span class="line">    action = <span class="string">&quot;dec&quot;</span>;</span><br><span class="line">    rsp,rep = poc.<span class="title class_">Post</span>(<span class="string">&quot;http://127.0.0.1:12080/go&quot;</span>,poc.<span class="title function_">replaceBody</span>(<span class="string">&quot;group=&quot;</span>+group+<span class="string">&quot;&amp;action=&quot;</span>+action+<span class="string">&quot;&amp;param=&quot;</span>+codec.<span class="title class_">EncodeUrl</span>(origin), <span class="literal">false</span>),poc.<span class="title function_">appendHeader</span>(<span class="string">&quot;content-type&quot;</span>, <span class="string">&quot;application/x-www-form-urlencoded&quot;</span>))~</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> json.<span class="title function_">loads</span>(rsp.<span class="title class_">GetBody</span>())[<span class="string">&quot;data&quot;</span>];</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>保存后便可通过右键菜单中的JS解密，将密文转换为明文</p>
-<p><img src="/2024/06/13/%E6%B5%85%E8%B0%88JS%E9%80%86%E5%90%91/image-20240613094526462.png" alt="image-20240613094526462"></p>
-<h1 id="参考链接"><a href="#参考链接" class="headerlink" title="参考链接"></a>参考链接</h1><p><a href="https://www.yaklang.com/docs/api/poc">poc | Yak Program Language (yaklang.com)</a></p>
-<p><a href="https://forum.butian.net/share/3019">奇安信攻防社区-在渗透的”幽灵模式”中开启”透视”外挂 (butian.net)</a></p>
-<p><a href="https://forum.butian.net/share/2940">奇安信攻防社区-死磕某小程序 (butian.net)</a></p>
-<p><a href="https://forum.butian.net/share/2889">奇安信攻防社区-某众测前端解密学习记录 (butian.net)</a></p>
-<p><a href="https://xz.aliyun.com/t/14629">保姆级教程—前端加密的对抗（附带靶场） - 先知社区 (aliyun.com)</a></p>
-]]></content>
-      <tags>
-        <tag>JS逆向</tag>
       </tags>
   </entry>
 </search>
