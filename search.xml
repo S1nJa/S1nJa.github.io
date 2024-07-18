@@ -1,6 +1,172 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
+    <title>Burpsuite 特征检测对抗</title>
+    <url>/2024/07/19/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/</url>
+    <content><![CDATA[<p>​	BurpSuite 是一款广泛使用的 web 应用程序安全测试工具。然而，越来越多的站点、应用程序、安全设备开始部署检测机制，以识别和阻止通过Burp的流量，这种情况导致我们在进行测试时无法正常抓包，从而影响整个测试过程，所以本文主要研究burp的常见特征以及绕过检测的隐藏方式。</p>
+<h1 id="HTTP特征"><a href="#HTTP特征" class="headerlink" title="HTTP特征"></a>HTTP特征</h1><p>​	当使用BurpSuite时，经常会访问<code>http://burp</code>和<code>http://burpsuite</code>这类页面。这些页面主要用于导出证书，当证书导入到浏览器后就不再有实际作用。然而，这些访问行为也成为了BurpSuite的典型流量特征之一。</p>
+<h2 id="证书页"><a href="#证书页" class="headerlink" title="证书页"></a>证书页</h2><p>​	写个demo，模拟下检测过程</p>
+<p><img src="/2024/07/19/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718175449792.png" alt="image-20240718175449792"></p>
+<p>当攻击者访问index时，如果检测到burp流量特征，则直接跳转到check页面，防止进一步请求。这里使用的是iframe标签，不受跨域请求限制，除此外还有：</p>
+<ul>
+<li>img</li>
+</ul>
+<p>favicon.ico在<code>resources/Media/</code>路径下，删除即可，但请求后仍会返回错误页回显burp特征</p>
+<figure class="highlight js"><table><tr><td class="code"><pre><span class="line">&lt;img src=<span class="string">&quot;http://burp/favicon.ico&quot;</span> onload=<span class="string">&quot;window.location.href=&#x27;/hack&#x27;&quot;</span> onerror=<span class="string">&quot;console.log(&#x27;无法访问目标主机&#x27;)&quot;</span>&gt;</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>link</li>
+</ul>
+<figure class="highlight js"><table><tr><td class="code"><pre><span class="line">&lt;link rel=<span class="string">&quot;stylesheet&quot;</span> href=<span class="string">&quot;http://burp/&quot;</span> onload=<span class="string">&quot;window.location.href=&#x27;/hack&#x27;&quot;</span> onerror=<span class="string">&quot;console.log(&#x27;无法访问目标主机&#x27;)&quot;</span>&gt;</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>script</li>
+</ul>
+<figure class="highlight js"><table><tr><td class="code"><pre><span class="line">&lt;script src=<span class="string">&quot;http://burp/test.js&quot;</span> onload=<span class="string">&quot;window.location.href=&#x27;/hack&#x27;&quot;</span> onerror=<span class="string">&quot;console.log(&#x27;无法访问目标主机&#x27;)&quot;</span>&gt;&lt;/script&gt;</span><br></pre></td></tr></table></figure>
+
+<h3 id="检测绕过"><a href="#检测绕过" class="headerlink" title="检测绕过"></a>检测绕过</h3><p>1、关闭<code>http://burp</code>代理</p>
+<p><img src="/2024/07/19/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718181246563.png" alt="image-20240718181246563"></p>
+<p>2、设置burp主机名不走代理</p>
+<p><img src="/2024/07/19/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718181731592.png" alt="image-20240718181731592"></p>
+<h2 id="报错页"><a href="#报错页" class="headerlink" title="报错页"></a>报错页</h2><p>​	即使关闭<code>http://burp</code>后，通过报错页仍能显示burp特征</p>
+<p><img src="/2024/07/19/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718182403682.png" alt="image-20240718182403682"></p>
+<h3 id="检测绕过-1"><a href="#检测绕过-1" class="headerlink" title="检测绕过"></a>检测绕过</h3><p>关闭报错在浏览器中显示即可</p>
+<p><img src="/2024/07/19/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718203931449.png" alt="image-20240718203931449"></p>
+<h1 id="WebSocket请求头检测"><a href="#WebSocket请求头检测" class="headerlink" title="WebSocket请求头检测"></a>WebSocket请求头检测</h1><h2 id="Sec-WebSocket-Extensions"><a href="#Sec-WebSocket-Extensions" class="headerlink" title="Sec-WebSocket-Extensions"></a>Sec-WebSocket-Extensions</h2><p>​	Sec-WebSocket-Extensions是用于在 WebSocket 连接期间协商和传输 WebSocket 扩展的HTTP标头，当发起websocket连接时，会在 HTTP 请求中添加 <code>Sec-WebSocket-Extensions</code> 请求头，用于声明并协商使用的 WebSocket 扩展。而当websocket连接经过burp代理后会将其删除，因此这也便是明显特征之一。</p>
+<p>开启burp代理时</p>
+<p><img src="/2024/07/19/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718230215657.png" alt="image-20240718230215657"></p>
+<p>关闭burp代理后</p>
+<p><img src="/2024/07/19/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718230253899.png" alt="image-20240718230253899"></p>
+<p>通过建立websocket连接，查看请求包中是否存在<code>Sec-WebSocket-Extensions</code>便可判断是否使用burp代理</p>
+<h3 id="检测绕过-2"><a href="#检测绕过-2" class="headerlink" title="检测绕过"></a>检测绕过</h3><p>​	是否Sec-WebSocket-Extensions请求头是通过burp的<code>Strip Sec-WebSocket-Extensions headers in incoming requests</code>设置选项决定的。默认情况下,Burp 删除此标头以减少使用扩展名的机会.如果服务器要求特定的扩展名,则可取消选中此选项.</p>
+<p><img src="/2024/07/19/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718231755732.png" alt="image-20240718231755732"></p>
+<p>此时开启burp代理，进行抓包，Sec-WebSocket-Extensions请求头仍然存在</p>
+<p><img src="/2024/07/19/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718232050810.png" alt="image-20240718232050810"></p>
+<h1 id="TLS指纹"><a href="#TLS指纹" class="headerlink" title="TLS指纹"></a>TLS指纹</h1><p>​	许多服务器使用 TLS 指纹技术来识别和检测客户端的特性。TLS 指纹包括客户端发送的 TLS 握手消息中的一系列参数，如：TLS 版本、加密套件、扩展等。通过抓包便可直观的看到这些信息：</p>
+<p><img src="/2024/07/19/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240719001633223.png" alt="image-20240719001633223"></p>
+<p>burp默认使用所有Cipher Suites，因此会有比较明显的特征</p>
+<p><img src="/2024/07/19/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240719002715595.png" alt="image-20240719002715595"></p>
+<h3 id="检测绕过-3"><a href="#检测绕过-3" class="headerlink" title="检测绕过"></a>检测绕过</h3><p>1、添加删除几个burp的Cipher套件</p>
+<p><img src="/2024/07/19/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240719001953995.png" alt="image-20240719001953995"></p>
+<p>2、使用burp插件：<a href="https://github.com/sleeyax/burp-awesome-tls">burp-awesome-tls</a></p>
+<p>​	该扩展可劫持 Burp 的 HTTP 和 TLS 堆栈，让您可以欺骗任何浏览器的 TLS 指纹 (JA3)。它增强了 Burp Suite 的功能，同时降低了各种 WAF（如 CloudFlare、PerimeterX、Akamai、DataDome 等）识别指纹的可能性。 </p>
+<p>可以通过<a href="https://github.com/salesforce/ja3">ja3</a>工具查看下使用前后差异，ja3的主要原理是将TLS 握手时客户端发送的 Client Hello 里面的 Version + Cipher Suites + Extensions 提取出来进行MD5计算</p>
+<figure class="highlight shell"><table><tr><td class="code"><pre><span class="line">python ja3.py burp.pcapng</span><br></pre></td></tr></table></figure>
+
+<p>使用前：</p>
+<p><img src="/2024/07/19/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240719003155743.png" alt="image-20240719003155743"></p>
+<p>使用后：</p>
+<p>可以看到大部分ip都变为了ipv6的形式，并且hash从<code>8bd06f4341a65d44a68bd2cef7cbedc6</code>变成了<code>cd08e31494f9531f560d64c695473da9</code></p>
+<p><img src="/2024/07/19/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240719003246877.png" alt="image-20240719003246877"></p>
+<p>从前后数据包对比也不难看出</p>
+<p><img src="/2024/07/19/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240719004256272.png" alt="image-20240719004256272"></p>
+<h1 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h1><p><a href="https://mp.weixin.qq.com/s/V0WdN9CMrTqo6qInuwyR6g">精确判断网站访问者是否是黑客的方法 (qq.com)</a></p>
+<p><a href="https://rmb122.com/2022/08/14/burpsuite-%E7%89%B9%E5%BE%81%E8%AF%86%E5%88%AB%E5%8F%8A%E5%85%B6%E5%AF%B9%E6%8A%97%E6%8E%AA%E6%96%BD/">Burpsuite 特征识别及其对抗措施 - rmb122’s notebook</a></p>
+<p><a href="https://mp.weixin.qq.com/s/pA4I4rGipmQ0_6yhMef6Ug">【知道创宇小课堂】防止Burp被识别 (qq.com)</a></p>
+]]></content>
+      <categories>
+        <category>Others</category>
+      </categories>
+      <tags>
+        <tag>Burp</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>defaultReadObject分析</title>
+    <url>/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/</url>
+    <content><![CDATA[<p>起因是想重新了解下反序列化，在看HashMap的readObject时，看到了defaultReadObject()，想到在重写readOject()中基本都遇到过，于是想了解下这个函数的具体作用以及实现原理。</p>
+<h1 id="readObject"><a href="#readObject" class="headerlink" title="readObject"></a>readObject</h1><p>先看下执行原生readOject()都发生了什么</p>
+<p>测试代码：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">SerializeTest</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line">        <span class="type">Animals</span> <span class="variable">animals</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Animals</span>(<span class="string">&quot;111&quot;</span>, <span class="string">&quot;222&quot;</span>, <span class="string">&quot;333&quot;</span>);</span><br><span class="line">        <span class="type">ByteArrayOutputStream</span> <span class="variable">bos</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayOutputStream</span>();</span><br><span class="line">        <span class="type">ObjectOutputStream</span> <span class="variable">oos</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectOutputStream</span>(bos);</span><br><span class="line">        oos.writeObject(animals);</span><br><span class="line">        <span class="type">byte</span>[] bytes = bos.toByteArray();</span><br><span class="line"></span><br><span class="line">        <span class="type">ByteArrayInputStream</span> <span class="variable">bis</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayInputStream</span>(bytes);</span><br><span class="line">        <span class="type">ObjectInputStream</span> <span class="variable">ois</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectInputStream</span>(bis);</span><br><span class="line">        <span class="type">Animals</span> <span class="variable">o</span> <span class="operator">=</span> (Animals)ois.readObject();</span><br><span class="line">        System.out.println(o.toString());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>Animals</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">Animals</span> <span class="keyword">implements</span> <span class="title class_">Serializable</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> String dog;</span><br><span class="line">    <span class="keyword">public</span> String cat;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">transient</span> String pet;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">Animals</span><span class="params">(String dog, String cat, String pet)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.dog = dog;</span><br><span class="line">        <span class="built_in">this</span>.cat = cat;</span><br><span class="line">        <span class="built_in">this</span>.pet = pet;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> String <span class="title function_">toString</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="string">&quot;Animals&#123;&quot;</span> +</span><br><span class="line">                <span class="string">&quot;dog=&#x27;&quot;</span> + dog + <span class="string">&#x27;\&#x27;&#x27;</span> +</span><br><span class="line">                <span class="string">&quot;, cat=&#x27;&quot;</span> + cat + <span class="string">&#x27;\&#x27;&#x27;</span> +</span><br><span class="line">                <span class="string">&quot;, pet=&#x27;&quot;</span> + pet + <span class="string">&#x27;\&#x27;&#x27;</span> +</span><br><span class="line">                <span class="string">&#x27;&#125;&#x27;</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="流程分析"><a href="#流程分析" class="headerlink" title="流程分析"></a>流程分析</h2><p>在执行<code>readOject()</code>后会执行<code>readOject0</code>，上半部分主要是快数据模式的判断，详细点说就是：在序列化和反序列化时，会采用块模式进行存储提高效率</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910223737867.png" alt="image-20230910223737867"></p>
+<p>而这里就是判断是否为该模式，是的话则检查当前块中是否还有剩余的数据，如果有的话则说明(有剩余未处理的数据),会抛出异常；如若没问题，最后就是将该模式设为false关闭掉。</p>
+<p>这个块数据模式的设置就在<code>ObjectInputStream</code>，其中<code>bin</code>的值就是该模式下的序列化数据</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="title function_">ObjectInputStream</span><span class="params">(InputStream in)</span> <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">    verifySubclass();</span><br><span class="line">    bin = <span class="keyword">new</span> <span class="title class_">BlockDataInputStream</span>(in);</span><br><span class="line">    handles = <span class="keyword">new</span> <span class="title class_">HandleTable</span>(<span class="number">10</span>);</span><br><span class="line">    vlist = <span class="keyword">new</span> <span class="title class_">ValidationList</span>();</span><br><span class="line">    enableOverride = <span class="literal">false</span>;</span><br><span class="line">    readStreamHeader();</span><br><span class="line">    bin.setBlockDataMode(<span class="literal">true</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>之后<code>tc = bin.peekByte()) == TC_RESET</code> 进行读取一个字节的数据来进行判断，经过一级级调用最后到了<code>read()</code>此时pos为4，</p>
+<blockquote>
+<p>peekByte方法，不是读取当前的字节，而是后一个字节。但是readByte方法则是读取当前所在的字节，不是后一个。这两个方法还是不一样的！</p>
+</blockquote>
+<p>所以取出的数据即：115赋值给tc（前边的-84，-19，0，5是序列化数据开头的标识信息）</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910224632288.png" alt="image-20230910224632288"></p>
+<p>switch语句找到对应115的case语句，处理对象数据，跟进下readOrdinaryObject</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">case</span> TC_OBJECT:</span><br><span class="line">    <span class="keyword">return</span> checkResolve(readOrdinaryObject(unshared));</span><br></pre></td></tr></table></figure>
+
+<p>首先判断读取一个字节数据进行判断(刚有提到readByte是读取当前字节，所以及时pos刚才自增了单读出来的还是115)，接着到了readClassDesc()读取类描述符。</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910230103059.png" alt="image-20230910230103059"></p>
+<p>这次调用的是peekByte()，所以读取下一个字节114，进入TO_CLASSDESC处理类对象 (现在等于是在TC_OBJECT 对象数据中处理TO_CLASSDESC类数据)</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910230556731.png" alt="image-20230910230556731"></p>
+<p>进入<code>readNonProxyDesc()</code>，主要分为两部<code>readClassDescriptor()</code>和<code>resolveClass()</code></p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910230950256.png" alt="image-20230910230950256"></p>
+<p>先看<code>readClassDescriptor()</code>，里边又执行了<code>readNonProxy()</code>，主要是拿到类中的两个字段——&gt;cat、dog</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910231235708.png" alt="image-20230910231235708"></p>
+<p>取出后回到<code>readNonProxyDesc()</code>，将<code>readClassDescriptor()</code>获取到的类及其字段返回给readDesc属性，通过<code>resolveClass()</code>默认类加载器加载了readDesc指定名称的类即Animals，并触发类的初始化</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">protected</span> Class&lt;?&gt; resolveClass(ObjectStreamClass desc)</span><br><span class="line">    <span class="keyword">throws</span> IOException, ClassNotFoundException</span><br><span class="line">&#123;</span><br><span class="line">    <span class="type">String</span> <span class="variable">name</span> <span class="operator">=</span> desc.getName();</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> Class.forName(name, <span class="literal">false</span>, latestUserDefinedLoader());</span><br><span class="line">    &#125; <span class="keyword">catch</span> (ClassNotFoundException ex) &#123;</span><br><span class="line">        Class&lt;?&gt; cl = primClasses.get(name);</span><br><span class="line">        <span class="keyword">if</span> (cl != <span class="literal">null</span>) &#123;</span><br><span class="line">            <span class="keyword">return</span> cl;</span><br><span class="line">        &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">            <span class="keyword">throw</span> ex;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>接着回到<code>readOrdinaryObject()</code>，将刚才加载的类赋值给desc，并判断其是否可以进行反序列化，接着通过forClass拿到目标class对象</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910231704288.png" alt="image-20230910231704288"></p>
+<p>下边执行<code>isInstantiable()</code>判断其是否可以进行实例化，之后实例化了desc，这时obj就成为了真正的<code>Animals</code>对象。(这里有个单例问题后边再说)</p>
+<p>Animals实例创建好之后，还需要对其中的每个字段进行填充，相关操作体现在readSerialData方法中</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910232845616.png" alt="image-20230910232845616"></p>
+<p><code>readSerialData</code>方法有两种情况：</p>
+<p>这个方法首先会对通过<code>hasReadObjectMethod()</code>对传入的对应描述符对象进行判断，看其是否存在<code>readObjectMethod</code>属性，存在就通过反射调用</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910233216207.png" alt="image-20230910233216207"></p>
+<p>而我们在Animals类中并没有重写<code>readOject()</code>，所以走到了下边else中的<code>defaultReadFields()</code></p>
+<p>其中通过反序列化读取到各字段的值，并反射对其进行填充，此刻obj对象实例，已经有了对应的字段和值</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910233647638.png" alt="image-20230910233647638"></p>
+<h3 id="单例问题"><a href="#单例问题" class="headerlink" title="单例问题"></a>单例问题</h3><p>走出<code>readSerialData()</code>后，就到了下边的<code>hasReadResolveMethod</code>()，判断是否有<code>ReadResolve</code>方法</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910233905584.png" alt="image-20230910233905584"></p>
+<p>而这个方法其实就是为了解决单例问题的，在前边有这么一段代码，当调用newInstance()进行实例化后，此时JVM会为其创建一个新的实例对象，这种做法会破坏单例模式。 </p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">try</span> &#123;</span><br><span class="line">    obj = desc.isInstantiable() ? desc.newInstance() : <span class="literal">null</span>;</span><br><span class="line">&#125; <span class="keyword">catch</span> (Exception ex) &#123;</span><br></pre></td></tr></table></figure>
+
+<p>所以可以用<code>readResolve()</code>解决这个问题</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">private</span> Object <span class="title function_">readResolve</span><span class="params">()</span> &#123;</span><br><span class="line"> <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">Animals</span>();   </span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>当然这个对当前反序列化没有影响，所以了解下即可，可参考：<a href="https://zhuanlan.zhihu.com/p/136769959">单例、序列化和readResolve()方法 - 知乎 (zhihu.com)</a></p>
+<h1 id="重写readObejct"><a href="#重写readObejct" class="headerlink" title="重写readObejct"></a>重写readObejct</h1><p>在上边提到<code>readSerialData()</code>有两种情况，分别是调用<code>readObject()</code>和<code>defaultReadFields()</code>填充字段，所以这里看下重写<code>readOject()</code>后会怎样</p>
+<p>在Animals类中加上：</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title function_">readObject</span><span class="params">(ObjectInputStream s)</span> <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>前边都是一样的所以就不看了，直接到<code>readSerialData()</code>里，由于这次已经有了<code>readOject()</code>方法，所以在<code>hasReadObjectMethod()</code>判断结束后，进入了if语句，反射调用了重写的<code>readObject()</code></p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910234840705.png" alt="image-20230910234840705"></p>
+<p>由于我们没有在<code>readObejct()</code>中，并没有写<code>readUTF()</code>或其他实例化语句，所以这里并没有对属性进行填充，就导致了：</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910235433620.png" alt="image-20230910235433620"></p>
+<p>这时就引出了<code>defaultReadObject()</code></p>
+<h1 id="defaultReadObject"><a href="#defaultReadObject" class="headerlink" title="defaultReadObject"></a>defaultReadObject</h1><p>defaultReadObject其实在重写的readOject方法中很多都有见过</p>
+<p>根据注解，作用主要是：从该流中读取当前类的非静态和非瞬态字段。这只能从正在反序列化的类的readObject方法调用。</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230908135654928.png" alt="image-20230908135654928"></p>
+<p>其实就是对各个字段值进行初始化，<code>defaultReadObject()</code> 主要执行以下操作：</p>
+<ol>
+<li>根据默认的规则从输入流中读取字节流，将其转换为对象的字段值。</li>
+<li>将读取到的字段值分配给相应的字段。</li>
+</ol>
+<h2 id="流程分析-1"><a href="#流程分析-1" class="headerlink" title="流程分析"></a>流程分析</h2><p> 将<code>readObject()</code>改成</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title function_">readObject</span><span class="params">(ObjectInputStream s)</span> <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line">    s.defaultReadObject();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>还是到之前反射调用<code>readOject()</code>的部分，这时执行了<code>defaultReadObject()</code></p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910235717113.png" alt="image-20230910235717113"></p>
+<p>之后执行到了<code>defaultReadFields()</code>，在上边字段填充中提到过，剩下过程就跟之前一样了</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910235817757.png" alt="image-20230910235817757"></p>
+<p>此时执行后的结果：</p>
+<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910235953222.png" alt="image-20230910235953222"></p>
+<h1 id="Others"><a href="#Others" class="headerlink" title="Others"></a>Others</h1><p>在CTF中，有通过对<code>Resolve()</code>重写，进行二次反序列化的利用，如：<a href="https://github.com/waderwu/javaDeserializeLabs">javaDeserializeLabs — labs5</a>、AliyunCTF — ezbean</p>
+<p>除此外还见过一次通过<code>resolveClass</code>设置拦截点的题，做个简单记录</p>
+<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">MyownObjectInputStream</span> <span class="keyword">extends</span> <span class="title class_">ObjectInputStream</span>&#123;</span><br><span class="line">    <span class="keyword">private</span> ArrayList Blacklist=<span class="keyword">new</span> <span class="title class_">ArrayList</span>();</span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">MyownObjectInputStream</span><span class="params">(InputStream in)</span> <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        <span class="built_in">super</span>(in);</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(Hashtable.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(HashSet.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(JdbcRowSetImpl.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(TreeMap.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(HotSwappableTargetSource.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(XString.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(BadAttributeValueExpException.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(TemplatesImpl.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(ToStringBean.class.getName());</span><br><span class="line">    &#125;</span><br><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="keyword">protected</span> Class&lt;?&gt; resolveClass(ObjectStreamClass desc) <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line">    <span class="keyword">if</span> (<span class="built_in">this</span>.Blacklist.contains(desc.getName())) &#123;</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">InvalidClassException</span>(<span class="string">&quot;dont do this&quot;</span>);</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="built_in">super</span>.resolveClass(desc);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+]]></content>
+      <categories>
+        <category>Java</category>
+      </categories>
+      <tags>
+        <tag>反序列化</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>ClassLoader动态类加载</title>
     <url>/2023/10/17/ClassLoader%E5%8A%A8%E6%80%81%E7%B1%BB%E5%8A%A0%E8%BD%BD/</url>
     <content><![CDATA[<p>在JNDI、RMI等攻击中，我们常会用到这么一段测试代码</p>
@@ -144,101 +310,6 @@
       </categories>
       <tags>
         <tag>Java安全</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>defaultReadObject分析</title>
-    <url>/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/</url>
-    <content><![CDATA[<p>起因是想重新了解下反序列化，在看HashMap的readObject时，看到了defaultReadObject()，想到在重写readOject()中基本都遇到过，于是想了解下这个函数的具体作用以及实现原理。</p>
-<h1 id="readObject"><a href="#readObject" class="headerlink" title="readObject"></a>readObject</h1><p>先看下执行原生readOject()都发生了什么</p>
-<p>测试代码：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">SerializeTest</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line">        <span class="type">Animals</span> <span class="variable">animals</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Animals</span>(<span class="string">&quot;111&quot;</span>, <span class="string">&quot;222&quot;</span>, <span class="string">&quot;333&quot;</span>);</span><br><span class="line">        <span class="type">ByteArrayOutputStream</span> <span class="variable">bos</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayOutputStream</span>();</span><br><span class="line">        <span class="type">ObjectOutputStream</span> <span class="variable">oos</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectOutputStream</span>(bos);</span><br><span class="line">        oos.writeObject(animals);</span><br><span class="line">        <span class="type">byte</span>[] bytes = bos.toByteArray();</span><br><span class="line"></span><br><span class="line">        <span class="type">ByteArrayInputStream</span> <span class="variable">bis</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayInputStream</span>(bytes);</span><br><span class="line">        <span class="type">ObjectInputStream</span> <span class="variable">ois</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectInputStream</span>(bis);</span><br><span class="line">        <span class="type">Animals</span> <span class="variable">o</span> <span class="operator">=</span> (Animals)ois.readObject();</span><br><span class="line">        System.out.println(o.toString());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>Animals</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">Animals</span> <span class="keyword">implements</span> <span class="title class_">Serializable</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> String dog;</span><br><span class="line">    <span class="keyword">public</span> String cat;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">transient</span> String pet;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">Animals</span><span class="params">(String dog, String cat, String pet)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.dog = dog;</span><br><span class="line">        <span class="built_in">this</span>.cat = cat;</span><br><span class="line">        <span class="built_in">this</span>.pet = pet;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> String <span class="title function_">toString</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="string">&quot;Animals&#123;&quot;</span> +</span><br><span class="line">                <span class="string">&quot;dog=&#x27;&quot;</span> + dog + <span class="string">&#x27;\&#x27;&#x27;</span> +</span><br><span class="line">                <span class="string">&quot;, cat=&#x27;&quot;</span> + cat + <span class="string">&#x27;\&#x27;&#x27;</span> +</span><br><span class="line">                <span class="string">&quot;, pet=&#x27;&quot;</span> + pet + <span class="string">&#x27;\&#x27;&#x27;</span> +</span><br><span class="line">                <span class="string">&#x27;&#125;&#x27;</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h2 id="流程分析"><a href="#流程分析" class="headerlink" title="流程分析"></a>流程分析</h2><p>在执行<code>readOject()</code>后会执行<code>readOject0</code>，上半部分主要是快数据模式的判断，详细点说就是：在序列化和反序列化时，会采用块模式进行存储提高效率</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910223737867.png" alt="image-20230910223737867"></p>
-<p>而这里就是判断是否为该模式，是的话则检查当前块中是否还有剩余的数据，如果有的话则说明(有剩余未处理的数据),会抛出异常；如若没问题，最后就是将该模式设为false关闭掉。</p>
-<p>这个块数据模式的设置就在<code>ObjectInputStream</code>，其中<code>bin</code>的值就是该模式下的序列化数据</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="title function_">ObjectInputStream</span><span class="params">(InputStream in)</span> <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">    verifySubclass();</span><br><span class="line">    bin = <span class="keyword">new</span> <span class="title class_">BlockDataInputStream</span>(in);</span><br><span class="line">    handles = <span class="keyword">new</span> <span class="title class_">HandleTable</span>(<span class="number">10</span>);</span><br><span class="line">    vlist = <span class="keyword">new</span> <span class="title class_">ValidationList</span>();</span><br><span class="line">    enableOverride = <span class="literal">false</span>;</span><br><span class="line">    readStreamHeader();</span><br><span class="line">    bin.setBlockDataMode(<span class="literal">true</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>之后<code>tc = bin.peekByte()) == TC_RESET</code> 进行读取一个字节的数据来进行判断，经过一级级调用最后到了<code>read()</code>此时pos为4，</p>
-<blockquote>
-<p>peekByte方法，不是读取当前的字节，而是后一个字节。但是readByte方法则是读取当前所在的字节，不是后一个。这两个方法还是不一样的！</p>
-</blockquote>
-<p>所以取出的数据即：115赋值给tc（前边的-84，-19，0，5是序列化数据开头的标识信息）</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910224632288.png" alt="image-20230910224632288"></p>
-<p>switch语句找到对应115的case语句，处理对象数据，跟进下readOrdinaryObject</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">case</span> TC_OBJECT:</span><br><span class="line">    <span class="keyword">return</span> checkResolve(readOrdinaryObject(unshared));</span><br></pre></td></tr></table></figure>
-
-<p>首先判断读取一个字节数据进行判断(刚有提到readByte是读取当前字节，所以及时pos刚才自增了单读出来的还是115)，接着到了readClassDesc()读取类描述符。</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910230103059.png" alt="image-20230910230103059"></p>
-<p>这次调用的是peekByte()，所以读取下一个字节114，进入TO_CLASSDESC处理类对象 (现在等于是在TC_OBJECT 对象数据中处理TO_CLASSDESC类数据)</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910230556731.png" alt="image-20230910230556731"></p>
-<p>进入<code>readNonProxyDesc()</code>，主要分为两部<code>readClassDescriptor()</code>和<code>resolveClass()</code></p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910230950256.png" alt="image-20230910230950256"></p>
-<p>先看<code>readClassDescriptor()</code>，里边又执行了<code>readNonProxy()</code>，主要是拿到类中的两个字段——&gt;cat、dog</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910231235708.png" alt="image-20230910231235708"></p>
-<p>取出后回到<code>readNonProxyDesc()</code>，将<code>readClassDescriptor()</code>获取到的类及其字段返回给readDesc属性，通过<code>resolveClass()</code>默认类加载器加载了readDesc指定名称的类即Animals，并触发类的初始化</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">protected</span> Class&lt;?&gt; resolveClass(ObjectStreamClass desc)</span><br><span class="line">    <span class="keyword">throws</span> IOException, ClassNotFoundException</span><br><span class="line">&#123;</span><br><span class="line">    <span class="type">String</span> <span class="variable">name</span> <span class="operator">=</span> desc.getName();</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> Class.forName(name, <span class="literal">false</span>, latestUserDefinedLoader());</span><br><span class="line">    &#125; <span class="keyword">catch</span> (ClassNotFoundException ex) &#123;</span><br><span class="line">        Class&lt;?&gt; cl = primClasses.get(name);</span><br><span class="line">        <span class="keyword">if</span> (cl != <span class="literal">null</span>) &#123;</span><br><span class="line">            <span class="keyword">return</span> cl;</span><br><span class="line">        &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">            <span class="keyword">throw</span> ex;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>接着回到<code>readOrdinaryObject()</code>，将刚才加载的类赋值给desc，并判断其是否可以进行反序列化，接着通过forClass拿到目标class对象</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910231704288.png" alt="image-20230910231704288"></p>
-<p>下边执行<code>isInstantiable()</code>判断其是否可以进行实例化，之后实例化了desc，这时obj就成为了真正的<code>Animals</code>对象。(这里有个单例问题后边再说)</p>
-<p>Animals实例创建好之后，还需要对其中的每个字段进行填充，相关操作体现在readSerialData方法中</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910232845616.png" alt="image-20230910232845616"></p>
-<p><code>readSerialData</code>方法有两种情况：</p>
-<p>这个方法首先会对通过<code>hasReadObjectMethod()</code>对传入的对应描述符对象进行判断，看其是否存在<code>readObjectMethod</code>属性，存在就通过反射调用</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910233216207.png" alt="image-20230910233216207"></p>
-<p>而我们在Animals类中并没有重写<code>readOject()</code>，所以走到了下边else中的<code>defaultReadFields()</code></p>
-<p>其中通过反序列化读取到各字段的值，并反射对其进行填充，此刻obj对象实例，已经有了对应的字段和值</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910233647638.png" alt="image-20230910233647638"></p>
-<h3 id="单例问题"><a href="#单例问题" class="headerlink" title="单例问题"></a>单例问题</h3><p>走出<code>readSerialData()</code>后，就到了下边的<code>hasReadResolveMethod</code>()，判断是否有<code>ReadResolve</code>方法</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910233905584.png" alt="image-20230910233905584"></p>
-<p>而这个方法其实就是为了解决单例问题的，在前边有这么一段代码，当调用newInstance()进行实例化后，此时JVM会为其创建一个新的实例对象，这种做法会破坏单例模式。 </p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">try</span> &#123;</span><br><span class="line">    obj = desc.isInstantiable() ? desc.newInstance() : <span class="literal">null</span>;</span><br><span class="line">&#125; <span class="keyword">catch</span> (Exception ex) &#123;</span><br></pre></td></tr></table></figure>
-
-<p>所以可以用<code>readResolve()</code>解决这个问题</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">private</span> Object <span class="title function_">readResolve</span><span class="params">()</span> &#123;</span><br><span class="line"> <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">Animals</span>();   </span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>当然这个对当前反序列化没有影响，所以了解下即可，可参考：<a href="https://zhuanlan.zhihu.com/p/136769959">单例、序列化和readResolve()方法 - 知乎 (zhihu.com)</a></p>
-<h1 id="重写readObejct"><a href="#重写readObejct" class="headerlink" title="重写readObejct"></a>重写readObejct</h1><p>在上边提到<code>readSerialData()</code>有两种情况，分别是调用<code>readObject()</code>和<code>defaultReadFields()</code>填充字段，所以这里看下重写<code>readOject()</code>后会怎样</p>
-<p>在Animals类中加上：</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title function_">readObject</span><span class="params">(ObjectInputStream s)</span> <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>前边都是一样的所以就不看了，直接到<code>readSerialData()</code>里，由于这次已经有了<code>readOject()</code>方法，所以在<code>hasReadObjectMethod()</code>判断结束后，进入了if语句，反射调用了重写的<code>readObject()</code></p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910234840705.png" alt="image-20230910234840705"></p>
-<p>由于我们没有在<code>readObejct()</code>中，并没有写<code>readUTF()</code>或其他实例化语句，所以这里并没有对属性进行填充，就导致了：</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910235433620.png" alt="image-20230910235433620"></p>
-<p>这时就引出了<code>defaultReadObject()</code></p>
-<h1 id="defaultReadObject"><a href="#defaultReadObject" class="headerlink" title="defaultReadObject"></a>defaultReadObject</h1><p>defaultReadObject其实在重写的readOject方法中很多都有见过</p>
-<p>根据注解，作用主要是：从该流中读取当前类的非静态和非瞬态字段。这只能从正在反序列化的类的readObject方法调用。</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230908135654928.png" alt="image-20230908135654928"></p>
-<p>其实就是对各个字段值进行初始化，<code>defaultReadObject()</code> 主要执行以下操作：</p>
-<ol>
-<li>根据默认的规则从输入流中读取字节流，将其转换为对象的字段值。</li>
-<li>将读取到的字段值分配给相应的字段。</li>
-</ol>
-<h2 id="流程分析-1"><a href="#流程分析-1" class="headerlink" title="流程分析"></a>流程分析</h2><p> 将<code>readObject()</code>改成</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">void</span> <span class="title function_">readObject</span><span class="params">(ObjectInputStream s)</span> <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line">    s.defaultReadObject();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>还是到之前反射调用<code>readOject()</code>的部分，这时执行了<code>defaultReadObject()</code></p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910235717113.png" alt="image-20230910235717113"></p>
-<p>之后执行到了<code>defaultReadFields()</code>，在上边字段填充中提到过，剩下过程就跟之前一样了</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910235817757.png" alt="image-20230910235817757"></p>
-<p>此时执行后的结果：</p>
-<p><img src="/2023/09/11/defaultReadObject%E5%88%86%E6%9E%90/image-20230910235953222.png" alt="image-20230910235953222"></p>
-<h1 id="Others"><a href="#Others" class="headerlink" title="Others"></a>Others</h1><p>在CTF中，有通过对<code>Resolve()</code>重写，进行二次反序列化的利用，如：<a href="https://github.com/waderwu/javaDeserializeLabs">javaDeserializeLabs — labs5</a>、AliyunCTF — ezbean</p>
-<p>除此外还见过一次通过<code>resolveClass</code>设置拦截点的题，做个简单记录</p>
-<figure class="highlight java"><table><tr><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">MyownObjectInputStream</span> <span class="keyword">extends</span> <span class="title class_">ObjectInputStream</span>&#123;</span><br><span class="line">    <span class="keyword">private</span> ArrayList Blacklist=<span class="keyword">new</span> <span class="title class_">ArrayList</span>();</span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">MyownObjectInputStream</span><span class="params">(InputStream in)</span> <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        <span class="built_in">super</span>(in);</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(Hashtable.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(HashSet.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(JdbcRowSetImpl.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(TreeMap.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(HotSwappableTargetSource.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(XString.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(BadAttributeValueExpException.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(TemplatesImpl.class.getName());</span><br><span class="line">        <span class="built_in">this</span>.Blacklist.add(ToStringBean.class.getName());</span><br><span class="line">    &#125;</span><br><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="keyword">protected</span> Class&lt;?&gt; resolveClass(ObjectStreamClass desc) <span class="keyword">throws</span> IOException, ClassNotFoundException &#123;</span><br><span class="line">    <span class="keyword">if</span> (<span class="built_in">this</span>.Blacklist.contains(desc.getName())) &#123;</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">InvalidClassException</span>(<span class="string">&quot;dont do this&quot;</span>);</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="built_in">super</span>.resolveClass(desc);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-]]></content>
-      <categories>
-        <category>Java</category>
-      </categories>
-      <tags>
-        <tag>反序列化</tag>
       </tags>
   </entry>
   <entry>
