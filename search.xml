@@ -751,4 +751,75 @@
         <category>Java</category>
       </categories>
   </entry>
+  <entry>
+    <title>Burpsuite 特征检测对抗</title>
+    <url>/2025/03/29/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/</url>
+    <content><![CDATA[<p>​	BurpSuite 是一款广泛使用的 web 应用程序安全测试工具。然而，越来越多的站点、应用程序、安全设备开始部署检测机制，以识别和阻止通过Burp的流量，这种情况导致我们在进行测试时无法正常抓包，从而影响整个测试过程，所以本文主要研究burp的常见特征以及绕过检测的隐藏方式。</p>
+<h1 id="HTTP特征"><a href="#HTTP特征" class="headerlink" title="HTTP特征"></a>HTTP特征</h1><p>​	当使用BurpSuite时，经常会访问<code>http://burp</code>和<code>http://burpsuite</code>这类页面。这些页面主要用于导出证书，当证书导入到浏览器后就不再有实际作用。然而，这些访问行为也成为了BurpSuite的典型流量特征之一。</p>
+<h2 id="证书页"><a href="#证书页" class="headerlink" title="证书页"></a>证书页</h2><p>​	写个demo，模拟下检测过程</p>
+<p><img src="/2025/03/29/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718175449792.png" alt="image-20240718175449792"></p>
+<p>当攻击者访问index时，如果检测到burp流量特征，则直接跳转到check页面，防止进一步请求。这里使用的是iframe标签，不受跨域请求限制，除此外还有：</p>
+<ul>
+<li>img</li>
+</ul>
+<p>favicon.ico在<code>resources/Media/</code>路径下，删除即可，但请求后仍会返回错误页回显burp特征</p>
+<figure class="highlight js"><table><tr><td class="code"><pre><span class="line">&lt;img src=<span class="string">&quot;http://burp/favicon.ico&quot;</span> onload=<span class="string">&quot;window.location.href=&#x27;/hack&#x27;&quot;</span> onerror=<span class="string">&quot;console.log(&#x27;无法访问目标主机&#x27;)&quot;</span>&gt;</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>link</li>
+</ul>
+<figure class="highlight js"><table><tr><td class="code"><pre><span class="line">&lt;link rel=<span class="string">&quot;stylesheet&quot;</span> href=<span class="string">&quot;http://burp/&quot;</span> onload=<span class="string">&quot;window.location.href=&#x27;/hack&#x27;&quot;</span> onerror=<span class="string">&quot;console.log(&#x27;无法访问目标主机&#x27;)&quot;</span>&gt;</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>script</li>
+</ul>
+<figure class="highlight js"><table><tr><td class="code"><pre><span class="line">&lt;script src=<span class="string">&quot;http://burp/test.js&quot;</span> onload=<span class="string">&quot;window.location.href=&#x27;/hack&#x27;&quot;</span> onerror=<span class="string">&quot;console.log(&#x27;无法访问目标主机&#x27;)&quot;</span>&gt;&lt;/script&gt;</span><br></pre></td></tr></table></figure>
+
+<h3 id="检测绕过"><a href="#检测绕过" class="headerlink" title="检测绕过"></a>检测绕过</h3><p>1、关闭<code>http://burp</code>代理</p>
+<p><img src="/2025/03/29/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718181246563.png" alt="image-20240718181246563"></p>
+<p>2、设置burp主机名不走代理</p>
+<p><img src="/2025/03/29/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718181731592.png" alt="image-20240718181731592"></p>
+<h2 id="报错页"><a href="#报错页" class="headerlink" title="报错页"></a>报错页</h2><p>​	即使关闭<code>http://burp</code>后，通过报错页仍能显示burp特征</p>
+<p><img src="/2025/03/29/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718182403682.png" alt="image-20240718182403682"></p>
+<h3 id="检测绕过-1"><a href="#检测绕过-1" class="headerlink" title="检测绕过"></a>检测绕过</h3><p>关闭报错在浏览器中显示即可</p>
+<p><img src="/2025/03/29/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718203931449.png" alt="image-20240718203931449"></p>
+<h1 id="WebSocket请求头检测"><a href="#WebSocket请求头检测" class="headerlink" title="WebSocket请求头检测"></a>WebSocket请求头检测</h1><h2 id="Sec-WebSocket-Extensions"><a href="#Sec-WebSocket-Extensions" class="headerlink" title="Sec-WebSocket-Extensions"></a>Sec-WebSocket-Extensions</h2><p>​	Sec-WebSocket-Extensions是用于在 WebSocket 连接期间协商和传输 WebSocket 扩展的HTTP标头，当发起websocket连接时，会在 HTTP 请求中添加 <code>Sec-WebSocket-Extensions</code> 请求头，用于声明并协商使用的 WebSocket 扩展。而当websocket连接经过burp代理后会将其删除，因此这也便是明显特征之一。</p>
+<p>开启burp代理时</p>
+<p><img src="/2025/03/29/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718230215657.png" alt="image-20240718230215657"></p>
+<p>关闭burp代理后</p>
+<p><img src="/2025/03/29/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718230253899.png" alt="image-20240718230253899"></p>
+<p>通过建立websocket连接，查看请求包中是否存在<code>Sec-WebSocket-Extensions</code>便可判断是否使用burp代理</p>
+<h3 id="检测绕过-2"><a href="#检测绕过-2" class="headerlink" title="检测绕过"></a>检测绕过</h3><p>​	是否Sec-WebSocket-Extensions请求头是通过burp的<code>Strip Sec-WebSocket-Extensions headers in incoming requests</code>设置选项决定的。默认情况下,Burp 删除此标头以减少使用扩展名的机会.如果服务器要求特定的扩展名,则可取消选中此选项.</p>
+<p><img src="/2025/03/29/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718231755732.png" alt="image-20240718231755732"></p>
+<p>此时开启burp代理，进行抓包，Sec-WebSocket-Extensions请求头仍然存在</p>
+<p><img src="/2025/03/29/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240718232050810.png" alt="image-20240718232050810"></p>
+<h1 id="TLS指纹"><a href="#TLS指纹" class="headerlink" title="TLS指纹"></a>TLS指纹</h1><p>​	许多服务器使用 TLS 指纹技术来识别和检测客户端的特性。TLS 指纹包括客户端发送的 TLS 握手消息中的一系列参数，如：TLS 版本、加密套件、扩展等。通过抓包便可直观的看到这些信息：</p>
+<p><img src="/2025/03/29/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240719001633223.png" alt="image-20240719001633223"></p>
+<p>burp默认使用所有Cipher Suites，因此会有比较明显的特征</p>
+<p><img src="/2025/03/29/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240719002715595.png" alt="image-20240719002715595"></p>
+<h3 id="检测绕过-3"><a href="#检测绕过-3" class="headerlink" title="检测绕过"></a>检测绕过</h3><p>1、添加删除几个burp的Cipher套件</p>
+<p><img src="/2025/03/29/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240719001953995.png" alt="image-20240719001953995"></p>
+<p>2、使用burp插件：<a href="https://github.com/sleeyax/burp-awesome-tls">burp-awesome-tls</a></p>
+<p>​	该扩展可劫持 Burp 的 HTTP 和 TLS 堆栈，让您可以欺骗任何浏览器的 TLS 指纹 (JA3)。它增强了 Burp Suite 的功能，同时降低了各种 WAF（如 CloudFlare、PerimeterX、Akamai、DataDome 等）识别指纹的可能性。 </p>
+<p>可以通过<a href="https://github.com/salesforce/ja3">ja3</a>工具查看下使用前后差异，ja3的主要原理是将TLS 握手时客户端发送的 Client Hello 里面的 Version + Cipher Suites + Extensions 提取出来进行MD5计算</p>
+<figure class="highlight shell"><table><tr><td class="code"><pre><span class="line">python ja3.py burp.pcapng</span><br></pre></td></tr></table></figure>
+
+<p>使用前：</p>
+<p><img src="/2025/03/29/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240719003155743.png" alt="image-20240719003155743"></p>
+<p>使用后：</p>
+<p>可以看到大部分ip都变为了ipv6的形式，并且hash从<code>8bd06f4341a65d44a68bd2cef7cbedc6</code>变成了<code>cd08e31494f9531f560d64c695473da9</code></p>
+<p><img src="/2025/03/29/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240719003246877.png" alt="image-20240719003246877"></p>
+<p>从前后数据包对比也不难看出</p>
+<p><img src="/2025/03/29/Burpsuite%E7%89%B9%E5%BE%81%E6%A3%80%E6%B5%8B%E5%AF%B9%E6%8A%97/image-20240719004256272.png" alt="image-20240719004256272"></p>
+<h1 id="参考文章"><a href="#参考文章" class="headerlink" title="参考文章"></a>参考文章</h1><p><a href="https://mp.weixin.qq.com/s/V0WdN9CMrTqo6qInuwyR6g">精确判断网站访问者是否是黑客的方法 (qq.com)</a></p>
+<p><a href="https://rmb122.com/2022/08/14/burpsuite-%E7%89%B9%E5%BE%81%E8%AF%86%E5%88%AB%E5%8F%8A%E5%85%B6%E5%AF%B9%E6%8A%97%E6%8E%AA%E6%96%BD/">Burpsuite 特征识别及其对抗措施 - rmb122’s notebook</a></p>
+<p><a href="https://mp.weixin.qq.com/s/pA4I4rGipmQ0_6yhMef6Ug">【知道创宇小课堂】防止Burp被识别 (qq.com)</a></p>
+]]></content>
+      <categories>
+        <category>Others</category>
+      </categories>
+      <tags>
+        <tag>Burp</tag>
+      </tags>
+  </entry>
 </search>
